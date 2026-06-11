@@ -1,0 +1,724 @@
+# EchoChamber — Complete Project Walkthrough (Interview Guide)
+
+> Read this top-to-bottom once. You'll be able to explain every part of this project to an interviewer.
+
+---
+
+## 🧠 What is EchoChamber? (The 30-Second Pitch)
+
+EchoChamber is a **real-time group chat application** where every user has a **personality identity**.
+
+When you sign up, you take a 5-question quiz. Based on your answers the system assigns you:
+- A **personality profile** (traits like `analytical`, `introvert`, `night`, etc.)
+- A **unique color** (derived from your answer sum)
+- A **unique avatar shape** (circle, triangle, square, hexagon, star)
+
+Then you join chat rooms, and your avatar + color appear next to every message you send. It's not just "username + text" — it's identity-aware chat.
+
+**Tech stack in one sentence:** React (Vite) frontend → Node.js/Express + Socket.io backend → Supabase (Postgres + Auth) as the database → Upstash Redis as the cache + real-time layer.
+
+---
+
+## 📁 Project Structure Overview
+
+```
+EchoChamber/
+├── backend/              ← Node.js server
+│   └── src/
+│       ├── index.js      ← Entry point: wires everything together
+│       ├── auth/
+│       │   └── supabase.js    ← Supabase client + auth helpers
+│       ├── lib/
+│       │   └── redis.js       ← Redis singleton (ioredis)
+│       ├── middleware/
+│       │   └── auth.js        ← JWT validation with Redis cache
+│       ├── routes/
+│       │   ├── onboarding.js  ← POST /api/onboarding
+│       │   ├── profile.js     ← GET /api/profile/:userId
+│       │   └── rooms.js       ← GET/POST /api/rooms
+│       ├── socket/
+│       │   ├── index.js       ← Socket.io init + auth
+│       │   ├── roomHandler.js ← join/send/leave/heartbeat events
+│       │   └── pubsub.js      ← Redis pub/sub subscriber
+│       └── jobs/
+│           └── syncRoomCounts.js ← Background job: Redis → Supabase
+│
+└── frontend/             ← React app (Vite)
+    └── src/
+        ├── main.jsx           ← React app entry point
+        ├── App.jsx            ← Router + route guards
+        ├── lib/
+        │   └── supabase.js    ← Frontend Supabase client
+        ├── context/
+        │   └── ProfileContext.jsx ← Global profile state
+        ├── hooks/
+        │   ├── useSocket.js   ← WebSocket connection lifecycle
+        │   └── useRoom.js     ← Room state + message management
+        ├── pages/
+        │   ├── Auth.jsx       ← Sign In / Sign Up page
+        │   ├── Onboarding.jsx ← 5-question personality quiz
+        │   └── Chat.jsx       ← Main chat layout
+        └── components/
+            ├── RoomList.jsx   ← Sidebar room list
+            ├── MessageList.jsx ← Message bubbles + avatars
+            └── MessageInput.jsx ← Textarea with send button
+```
+
+---
+
+## 🔁 User Journey (How Everything Connects)
+
+```
+1. User opens app (/)
+      ↓
+2. Auth.jsx — Sign Up or Sign In via Supabase
+      ↓
+3. First-time user → /onboarding
+   Onboarding.jsx — 5-question quiz
+   → POST /api/onboarding (with JWT)
+   → Backend computes personality → saves to Redis + Supabase
+      ↓
+4. Returning user → /chat
+   ProfileContext loads profile via GET /api/profile/:userId
+      ↓
+5. Chat.jsx loads
+   → useSocket.js establishes WebSocket connection (with JWT)
+   → useRoom.js listens for messages, presence updates
+      ↓
+6. User selects a room
+   → socket.emit('join_room')
+   → Server sends back room history + online users
+      ↓
+7. User sends message
+   → socket.emit('send_message')
+   → Server rate-limits, stores in Redis, publishes via pub/sub
+   → All clients in room receive 'new_message' event
+```
+
+---
+
+## 🔧 BACKEND — File-by-File Explanation
+
+---
+
+### `backend/src/index.js` — The Main Entry Point
+
+**Why it exists:** This is where the entire server is assembled. Think of it as the "glue" file.
+
+**What it does step by step:**
+1. Loads environment variables from `.env` (`dotenv/config`)
+2. Creates an Express app
+3. Adds CORS middleware — allows the frontend at `http://localhost:5173` to make requests
+4. Adds JSON body parsing (max 10kb — security limit to prevent huge payloads)
+5. Registers three route groups: `/api/onboarding`, `/api/profile`, `/api/rooms`
+6. Creates a raw `http.Server` from Express — **this is important** because Socket.io must attach to the HTTP server, not to Express directly
+7. Calls `initSocket(server)` to attach Socket.io
+8. Starts listening on PORT 3001
+9. Starts the `syncRoomCounts` background job
+10. Registers graceful shutdown handlers (SIGTERM/SIGINT) — clears the job, closes Socket.io, closes the server
+
+**Key concept to explain:** "I create an `http.Server` from Express because Socket.io needs to share the same HTTP port. Socket.io handles the WebSocket upgrade handshake on that same port."
+
+---
+
+### `backend/src/auth/supabase.js` — Three Supabase Clients
+
+**Why it exists:** The backend needs to talk to Supabase in 3 different modes. This file centralizes all of that.
+
+**The three clients:**
+
+| Client | Key used | When used | Why |
+|--------|----------|-----------|-----|
+| `supabase` (default) | Anon key | `signUp`, `signIn`, `getUser` | Standard auth ops |
+| `createUserClient(token)` | Anon key + user's JWT | Route handlers (DB writes) | Supabase RLS sees the real `auth.uid()` |
+| `supabaseAdmin` | Service role key | Background jobs only | Bypasses Row-Level Security (RLS) |
+
+**Key concept — Row-Level Security (RLS):**
+Supabase has a security feature where database policies run per-request. Example policy: "A user can only update their own profile row."
+
+When the backend uses `createUserClient(token)`, it sends the user's JWT to Supabase. Supabase resolves `auth.uid()` = real user ID → RLS policy passes.
+
+The `supabaseAdmin` (service role key) bypasses ALL RLS — that's why it's only used in background jobs that have no user token.
+
+**Auth helper functions** (`signUp`, `signIn`, `signOut`, `getUser`) are thin wrappers. The reason: "If we ever swap Supabase for another auth provider, we only change this one file."
+
+---
+
+### `backend/src/lib/redis.js` — Redis Singleton
+
+**Why it exists:** Redis is used in many places (auth middleware, roomHandler, syncJob, pubsub). This file creates **one shared connection** (singleton pattern) so we don't open a new TCP connection on every operation.
+
+**What it uses:** `ioredis` — the most popular Redis client for Node.js. It handles reconnection automatically.
+
+**Key detail:** Upstash Redis (the hosted Redis we use) requires TLS. The URL starts with `rediss://` (note the double `s`). ioredis detects this from the URL automatically.
+
+**Error handling:** Redis errors are logged but don't crash the app — the code is written to degrade gracefully if Redis is down.
+
+---
+
+### `backend/src/middleware/auth.js` — JWT Validation + Redis Token Cache
+
+**Why it exists:** Every protected API route needs to know WHO is making the request. This middleware reads the `Authorization: Bearer <token>` header and validates it.
+
+**The naive approach (problem):**
+Every request calls `supabase.getUser(token)` which is a **network call** to Supabase's auth server (~50-100ms). With 50 concurrent users, every burst of requests = 50 parallel network calls.
+
+**The fix — Redis Token Cache (Bottleneck Fix #4):**
+```
+First request with token X:
+  → Cache miss → call Supabase (~100ms) → store in Redis with 5-min TTL
+
+Every request within next 5 minutes:
+  → Cache hit → Redis GET (sub-millisecond) → skip Supabase entirely
+```
+
+**How it works in code:**
+1. Extract token from `Authorization: Bearer <token>` header
+2. Check Redis for key `auth:{token}` — value is stored as `"userId|email"` (pipe-separated string, no JSON overhead)
+3. Cache HIT → parse, attach `req.user = {id, email}` and `req.token` → call `next()`
+4. Cache MISS → call `supabase.getUser(token)` → store result → attach to req → call `next()`
+
+**Why is storing the token in Redis safe?**
+JWTs are immutable — the string never changes during its lifetime. The only risk: a logged-out user's token stays valid for up to 5 minutes (the TTL). For a chat app, that's acceptable. For a banking app, you'd maintain a Redis blocklist of revoked tokens.
+
+---
+
+### `backend/src/routes/onboarding.js` — Personality Profile Creator
+
+**Why it exists:** After the user answers 5 questions in the frontend, this route takes those answers and computes + saves their personality profile.
+
+**The 5 questions → 5 personality traits:**
+```
+Q1 (setting):  1=nature,  2=ocean,     3=urban
+Q2 (time):     1=night,   2=day,       3=evening
+Q3 (response): 1=analytical, 2=emotional, 3=avoidant
+Q4 (social):   1=introvert,  2=ambivert,  3=extrovert
+Q5 (medium):   1=verbal,  2=visual,    3=auditory
+```
+
+**Color assignment (deterministic):**
+Sum all 5 answers (range: 5 to 15) → `sum % 12` → index into 12-color palette. Same answers = same color every time.
+
+**Avatar shape assignment:**
+`(answer[2] - 1) % 5` → index into `['circle', 'triangle', 'square', 'hexagon', 'star']`
+
+**`typeKey`:** A string like `"analytical:verbal"` — the combination of Q3 and Q5. This is stored so the system can group users by personality type for future features.
+
+**Storage strategy — why two stores?**
+```
+Redis HASH "profile:{userId}" → permanent, no TTL
+  → Fast reads during every socket connection and profile lookup
+  
+Supabase table "profiles" → durable, survives Redis restart
+  → Backup + analytics + relational queries
+```
+
+**Important:** Redis is the "live source of truth". Supabase is the durable backup. If the Supabase write fails, the code logs the error but doesn't fail the request — the Redis write already succeeded.
+
+---
+
+### `backend/src/routes/profile.js` — Redis-First Profile Read
+
+**Why it exists:** Any part of the app that needs a user's profile calls this route. It implements a **cache-aside / read-through** pattern.
+
+**The read pattern:**
+```
+1. HGETALL "profile:{userId}" from Redis
+   → Hit: return immediately (sub-millisecond)
+   
+2. Miss: query Supabase
+   → Re-hydrate Redis (so next read is fast)
+   → Return data
+```
+
+**Why HGETALL?** Redis HASH stores each profile field individually (`userId`, `displayName`, `color`, `avatar`, etc.). `HGETALL` returns all fields as one object. This is more memory-efficient than storing the whole profile as a JSON string, and allows reading individual fields (e.g., `HGET profile:{userId} typeKey`).
+
+**Why is this route public (no auth)?** Because room participants need to see each other's profiles. Profiles only contain personality data — no private information.
+
+---
+
+### `backend/src/routes/rooms.js` — Room Management
+
+**Three endpoints:**
+
+**`GET /api/rooms`** — Lists all rooms with live message counts
+- Fetches room metadata from Supabase
+- Then uses a **Redis pipeline** to fetch all `msgcount:{roomId}` keys in ONE round trip
+- Without pipeline: 10 rooms × 20ms = 200ms. With pipeline: all 10 in one TCP packet = ~20ms
+
+**`POST /api/rooms`** — Creates a new room (auth required)
+- Uses `createUserClient` so RLS policy passes
+- Generates a UUID for the room ID
+- Returns the created room
+
+**`GET /api/rooms/:roomId/history`** — Last 50 messages from Supabase
+- Used when there's no Redis history (e.g., after a server restart)
+- Joins with `profiles` table to include sender's avatar, color, display name
+- Returns oldest-first (reversed after the Supabase query)
+
+---
+
+### `backend/src/socket/index.js` — Socket.io Server Setup
+
+**Why it exists:** Initializes Socket.io, runs auth for every new WebSocket connection, and wires up event handlers.
+
+**Socket auth flow (runs before any events):**
+```
+1. Read token from socket.handshake.auth.token
+   (Frontend sends this when creating the socket connection)
+   
+2. Check Redis "auth:{token}" — same cache as HTTP middleware
+   Hit → parse userId
+   Miss → call supabase.getUser(token)
+   
+3. Load profile from Redis: HGETALL "profile:{userId}"
+
+4. Attach to socket:
+   socket.userId  = userId
+   socket.profile = profile  ← stored once, never fetched again
+   socket.typeKey = profile.typeKey
+   
+5. Call next() → connection is accepted
+   Or next(new Error('AUTH_INVALID')) → connection is rejected
+```
+
+**Key design decision:** The profile is stored on the socket object at connection time. This means during the lifetime of the connection, `roomHandler.js` can access `socket.profile` without any Redis calls.
+
+**`profile_updated` event:** If a user retakes the onboarding quiz, the frontend emits this event. The server disconnects the socket — on reconnect, the new profile is loaded.
+
+**`startPubSub(io)`** is called here to start the Redis pub/sub subscriber.
+
+---
+
+### `backend/src/socket/roomHandler.js` — The Core Chat Logic
+
+**Why it exists:** Handles all room-related socket events. This is where messages flow.
+
+**Redis key schema used here:**
+```
+"room:{roomId}:members"       → Redis Set of active userIds
+"presence:{roomId}:{userId}"  → Key with 30s TTL (heartbeat-based)
+"history:{roomId}"            → Redis List of last 50 messages (LPUSH + LTRIM)
+"ratelimit:{userId}"          → INCR counter (expires in 60s)
+"roomcount:{roomId}"          → Message count (synced to DB by job)
+```
+
+**`join_room` event:**
+1. `socket.join(roomId)` — Socket.io room (for broadcasting)
+2. `SADD "room:{roomId}:members" userId` — add to presence set
+3. `SET "presence:{roomId}:{userId}" 1 EX 30` — TTL presence key
+4. Fetch all member IDs → **pipeline** all `HGETALL profile:{id}` in one round trip
+5. `LRANGE "history:{roomId}" 0 49` → get last 50 messages
+6. Emit `room_history` and `online_users` to the joining client
+7. Broadcast `user_joined` to everyone else in the room
+
+**`send_message` event:**
+1. **Rate limiting:** `INCR "ratelimit:{userId}"` → if count > 30, reject
+2. Validate + trim content (max 500 chars)
+3. Build message object with UUID, timestamp, senderProfile (from `socket.profile`)
+4. **Pipeline 4 operations in one round trip:**
+   - `LPUSH "history:{roomId}" messageJson` — prepend to history
+   - `LTRIM "history:{roomId}" 0 49` — keep only last 50 entries
+   - `INCR "msgcount:{roomId}"` — increment counter (synced to DB later)
+   - `PUBLISH "room:{roomId}" messageJson` — deliver to all subscribers
+5. **Fire-and-forget Supabase insert** — don't await it; Redis is live source of truth
+
+**`heartbeat` event:**
+Client sends this every 20 seconds. Server refreshes the 30s TTL key. If the client disconnects without sending `leave_room`, the presence key auto-expires within 30 seconds.
+
+**`leave_room` / `disconnect` events:**
+- `socket.leave(roomId)` — leave Socket.io room
+- `SREM "room:{roomId}:members" userId` — remove from presence set
+- `DEL "presence:{roomId}:{userId}"` — delete TTL key
+- Broadcast `user_left` to room
+
+---
+
+### `backend/src/socket/pubsub.js` — Redis Pub/Sub (Horizontal Scaling)
+
+**Why it exists:** When a message is published to Redis channel `"room:{roomId}"`, ALL server instances receive it and deliver it to their connected clients.
+
+**Why a separate Redis connection?**
+A subscribed Redis client can ONLY send `SUBSCRIBE`/`UNSUBSCRIBE`/`PING` commands. It cannot run `HGETALL`, `LPUSH`, etc. So we create a **dedicated subscriber client** separate from the main `redis` singleton.
+
+**How it works:**
+```
+roomHandler.js:
+  pipeline.publish("room:{roomId}", messageJson)
+                    ↓
+pubsub.js subscriber receives it:
+  subscriber.on('pmessage', (pattern, channel, messageJson) => {
+    const roomId = channel.slice('room:'.length);
+    io.to(roomId).emit('new_message', message);
+  });
+```
+
+**Scaling benefit:**
+- Server Instance A has users Alice and Bob connected
+- Server Instance B has user Charlie connected
+- Alice sends a message → Instance A publishes to Redis
+- **Both Instance A and Instance B's subscribers receive it**
+- Both emit `new_message` to their own clients
+- Without pub/sub: Charlie (on Instance B) would never see Alice's message
+
+---
+
+### `backend/src/jobs/syncRoomCounts.js` — Write-Behind Caching (Bottleneck Fix #5)
+
+**Why it exists:** The naive approach of `UPDATE rooms SET count = count + 1` on every message causes database lock contention at high throughput.
+
+**The problem explained:**
+In PostgreSQL, multiple concurrent `UPDATE` statements on the same row compete for a row-level lock. One transaction must wait for the other to finish. At high message frequency (many messages per second in a busy room), this creates a queue of waiting updates.
+
+**The fix — Write-Behind Caching:**
+```
+Hot path (per message):
+  INCR "roomcount:{roomId}" in Redis
+  → Redis is single-threaded → INCR is always atomic → no lock contention
+
+Background job (every 60 seconds):
+  1. Find all "roomcount:*" keys
+  2. Pipeline-read all counts
+  3. Batch-update Supabase
+```
+
+The `synced_count` column in the rooms table may be up to 60 seconds stale, but that's fine — nobody needs real-time message counts in a room list.
+
+**`startSyncJob()`** returns the interval ID so it can be cleared during graceful shutdown.
+
+---
+
+## 🎨 FRONTEND — File-by-File Explanation
+
+---
+
+### `frontend/src/main.jsx` — React Entry Point
+
+The absolute starting point. Creates the React root and renders `<App />` inside `<StrictMode>`. Imports global CSS.
+
+---
+
+### `frontend/src/App.jsx` — Router + Route Guards
+
+**Three routes:**
+- `/` → `Auth` page (sign in / sign up)
+- `/onboarding` → `Onboarding` quiz
+- `/chat` → `Chat` page (protected by `RequireProfile`)
+
+**`RequireProfile` component:**
+A route guard that checks if the user has a profile in context. If not, redirects to `/onboarding`. The `isLoaded` flag prevents a flash of wrong state on page refresh (waits for the profile fetch to complete before deciding where to redirect).
+
+**`ProfileProvider` wraps everything** — all pages share the same profile state.
+
+---
+
+### `frontend/src/lib/supabase.js` — Frontend Supabase Client
+
+Creates a Supabase client with the **anon key** using the Vite environment variable `VITE_SUPABASE_URL`. The frontend uses this to:
+- Sign up / sign in / sign out (Supabase SDK handles the session in `localStorage`)
+- Get the current session (to extract `access_token` for API calls)
+
+**Important:** This is a completely separate client from the backend's `auth/supabase.js`. They both connect to the same Supabase project but run in different JavaScript environments (browser vs. Node.js).
+
+---
+
+### `frontend/src/context/ProfileContext.jsx` — Global Profile State
+
+**Why React Context?** Multiple components need the user's profile (Chat header, MessageBubble, Onboarding success redirect). Instead of prop-drilling, we use a context.
+
+**On app load:**
+1. Calls `supabase.auth.getSession()` to check if a session exists in `localStorage`
+2. If session exists: `GET /api/profile/:userId` to load the profile
+3. Sets `isLoaded = true` when done (success or no profile)
+
+**What `isLoaded` prevents:** Without it, `App.jsx` might redirect to `/onboarding` for a split-second before the profile fetch returns, causing a flash.
+
+**`setProfile`** is exposed in the context so `Onboarding.jsx` can store the newly-created profile immediately after submission (without requiring another API call).
+
+---
+
+### `frontend/src/hooks/useSocket.js` — WebSocket Lifecycle
+
+**Why a custom hook?** Socket.io connection setup + cleanup is complex. Extracting it into a hook keeps `Chat.jsx` clean.
+
+**On mount:**
+1. Gets current Supabase session (for the JWT)
+2. Creates `io(API_URL, { auth: { token: access_token }, transports: ['websocket'] })`
+3. Sets up connect/disconnect/error event listeners
+4. Starts a **heartbeat interval** (every 20s) — emits `'heartbeat'` with the current `roomId`
+5. Returns `{ socket, connected }`
+
+**On unmount:**
+- Clears the heartbeat interval (prevent memory leak)
+- Disconnects the socket
+
+**Why `transports: ['websocket']`?** Socket.io by default starts with HTTP long-polling, then upgrades to WebSocket. Forcing WebSocket-only skips the unnecessary HTTP phase.
+
+---
+
+### `frontend/src/hooks/useRoom.js` — Room State + Messages
+
+**Why a separate hook from `useSocket`?** Socket is one connection shared globally. Room state (messages, online users) is specific to which room you're in.
+
+**Uses `useSocket(roomId)` internally.**
+
+**On socket ready + roomId change:**
+1. Emits `join_room` → server sends back `room_history` + `online_users`
+2. Listens for:
+   - `new_message` → append to messages (with deduplication by `id`)
+   - `user_joined` → append to online users (with deduplication by `userId`)
+   - `user_left` → remove from online users
+   - `rate_limited` → show toast notification
+
+**`sendMessage` function:**
+- Client-side rate limit check (mirrors server limit of 30/min)
+- Emits `send_message` to socket
+
+**On unmount or room change:**
+- Emits `leave_room`
+- Removes all socket event listeners
+- Resets messages and online users
+
+---
+
+### `frontend/src/pages/Auth.jsx` — Sign In / Sign Up
+
+Two modes: `'signin'` and `'signup'` (toggled by tabs).
+
+**Sign Up flow:**
+1. `supabase.auth.signUp({ email, password, options: { data: { display_name } } })`
+2. If session comes back immediately → navigate to `/onboarding`
+3. If not (email confirmation required) → show "check your inbox" message
+
+**Sign In flow:**
+1. `supabase.auth.signInWithPassword({ email, password })`
+2. Fetch `GET /api/profile/:userId` to check if the user has completed onboarding
+3. If profile exists → set profile in context → navigate to `/chat`
+4. If no profile → navigate to `/onboarding`
+
+**Design:** Dark glassmorphism card with two decorative gradient orbs, DM Sans font, violet accent color.
+
+---
+
+### `frontend/src/pages/Onboarding.jsx` — 5-Question Personality Quiz
+
+**UX design:** One card at a time, slides in from the right with a CSS animation (`onboarding-card--in` / `onboarding-card--out` classes).
+
+**State tracked:**
+- `currentIndex` — which question (0-4)
+- `answers` — accumulated array of choices (1-indexed)
+- `slideDir` — 'in' or 'out' for CSS class on the card
+
+**On option select:**
+- If not last question: animate slide out → wait 280ms → advance → animate slide in
+- If last question: call `submitProfile(allAnswers)`
+
+**`submitProfile`:**
+1. Get session from Supabase (for `access_token`)
+2. `POST /api/onboarding` with `{ answers, displayName }` and `Authorization: Bearer token`
+3. Response includes the full profile object
+4. Store profile in React context via `setProfile`
+5. Navigate to `/chat`
+
+---
+
+### `frontend/src/pages/Chat.jsx` — Main Chat Layout
+
+Three-panel layout:
+- **Left sidebar** — `RoomList` component + current user profile strip + sign out button
+- **Main area** — `MessageList` + `MessageInput` (only when a room is active)
+- **Right panel** — Online users list (only when a room is active)
+
+Uses `useRoom(activeRoomId)` to get: `messages`, `onlineUsers`, `isLoading`, `connected`, `toast`, `sendMessage`.
+
+**Avatar shapes** are rendered as inline SVG — the 5 shapes (circle, triangle, square, hexagon, star) match what was assigned during onboarding.
+
+**Connection status** is shown below the user's name — "Online" or "Reconnecting…" based on the `connected` state from `useRoom`.
+
+**Toast notifications** appear at bottom-right for rate limit alerts.
+
+---
+
+### `frontend/src/components/RoomList.jsx` — Room Sidebar
+
+- Fetches `GET /api/rooms` on mount
+- Polls every 30 seconds to get updated message counts
+- "+" button shows a create-room form inline
+- Creates room via `POST /api/rooms` with JWT
+- Clicking a room calls `onSelectRoom(room.id)` which updates `activeRoomId` in Chat.jsx
+
+---
+
+### `frontend/src/components/MessageList.jsx` — Message Bubbles
+
+- Shows loading skeleton (5 animated placeholder bubbles) while `isLoading` is true
+- Renders `MessageBubble` for each message
+- `isOwn` is true if `message.senderId === currentUserId` → bubble appears on the right
+- Auto-scrolls to bottom on new messages via `useRef` + `scrollIntoView`
+- Avatar shapes rendered as inline SVG
+
+---
+
+### `frontend/src/components/MessageInput.jsx` — Text Input
+
+- Textarea with character counter (max 500)
+- Enter sends, Shift+Enter creates a newline
+- **Optimistic UI:** clears the input immediately when send is triggered (doesn't wait for server confirmation)
+- Character counter turns warning color at < 50 remaining, red when over limit
+- Disabled state shows "Connecting…" while the WebSocket isn't ready
+
+---
+
+## ⚡ The 5 Bottleneck Fixes (Core Technical Decisions)
+
+These are the most important things to explain to an interviewer.
+
+### Fix #1 — Pipeline (Batch Redis Calls)
+
+**File:** `routes/rooms.js` (room list), `socket/roomHandler.js` (join_room)
+
+**Problem:** Fetching data for N rooms/users requires N separate Redis calls. Each call = a separate TCP round trip (~20ms each). 10 rooms = 200ms added to every page load.
+
+**Fix:** `redis.pipeline()` batches all N commands into one TCP packet. You send all commands, then call `.exec()` once to get all results. 10 rooms = ~20ms total regardless.
+
+```javascript
+const pipeline = redis.pipeline();
+rooms.forEach(room => pipeline.get(`msgcount:${room.id}`));
+const results = await pipeline.exec(); // ONE network call
+```
+
+---
+
+### Fix #2 — Redis Sets for Presence (not KEYS pattern)
+
+**File:** `socket/roomHandler.js`
+
+**Problem:** To find who's in a room, the naive approach is `KEYS "room:*:members"` — but `KEYS` scans ALL keys in Redis and blocks the server while it does so. In production with thousands of keys, this can block Redis for hundreds of milliseconds.
+
+**Fix:** Use a Redis Set per room.
+- `SADD "room:{roomId}:members" userId` when joining
+- `SREM "room:{roomId}:members" userId` when leaving
+- `SMEMBERS "room:{roomId}:members"` to get all current members — only scans that specific set, not all keys
+
+---
+
+### Fix #3 — TTL Presence Keys (Heartbeat-Based)
+
+**Files:** `socket/roomHandler.js`, `hooks/useSocket.js`
+
+**Problem:** If a user's browser crashes or their internet dies, they never send `leave_room`. Without cleanup, they'd appear "online" forever.
+
+**Fix:** Each active user has a Redis key `"presence:{roomId}:{userId}"` with a 30-second TTL. The frontend sends a `heartbeat` event every 20 seconds. Each heartbeat resets the TTL to 30 seconds. If the heartbeat stops (disconnection), the key expires naturally in at most 30 seconds.
+
+---
+
+### Fix #4 — Redis Token Cache (Auth Middleware)
+
+**File:** `middleware/auth.js` (and `socket/index.js`)
+
+**Problem:** `supabase.getUser(token)` is a network call. Every HTTP request and every WebSocket connection would require a fresh round trip to Supabase's auth server.
+
+**Fix:** Cache the validated token in Redis with a 5-minute TTL. Key = `"auth:{token}"`, value = `"userId|email"`. First validation is expensive; every subsequent one is sub-millisecond.
+
+---
+
+### Fix #5 — Write-Behind Caching for Message Counts
+
+**Files:** `socket/roomHandler.js`, `jobs/syncRoomCounts.js`
+
+**Problem:** Doing `UPDATE rooms SET count = count + 1` in PostgreSQL on every message creates row-level lock contention at high throughput. Many concurrent updates to the same row = transactions queueing up waiting for locks.
+
+**Fix:** 
+- Hot path: `INCR "roomcount:{roomId}"` in Redis — atomic, no locks, sub-millisecond
+- Background job (every 60s): reads all counts from Redis, batch-updates Supabase
+
+The live count is always in Redis. Supabase is the eventual-consistent backup. The room list shows Redis count (live) or falls back to `synced_count` from Supabase.
+
+---
+
+## 🗃️ Database Schema (Supabase Tables)
+
+### `profiles` table
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid | Primary key, FK to Supabase auth.users |
+| `display_name` | text | User's chosen name |
+| `color` | text | Hex color string (e.g., `#7c6ff7`) |
+| `avatar` | text | Shape name (`circle`, `triangle`, etc.) |
+| `personality_json` | jsonb | `{setting, time, response, social, medium, typeKey}` |
+| `created_at` | timestamptz | Auto |
+
+### `rooms` table
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | Primary key |
+| `name` | text | Room name (max 80 chars) |
+| `description` | text | Optional (max 200 chars) |
+| `created_by` | uuid | FK to auth.users |
+| `created_at` | timestamptz | Auto |
+| `synced_count` | integer | Message count synced from Redis every 60s |
+
+### `messages` table
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid | Primary key |
+| `room_id` | uuid | FK to rooms |
+| `sender_id` | uuid | FK to auth.users |
+| `content` | text | Max 500 chars |
+| `sent_at` | timestamptz | When message was sent |
+
+---
+
+## 🔑 Redis Key Schema (Reference)
+
+| Key | Type | Value | TTL |
+|-----|------|-------|-----|
+| `auth:{token}` | String | `"{userId}\|{email}"` | 5 min |
+| `profile:{userId}` | Hash | All profile fields | None (permanent) |
+| `history:{roomId}` | List | Last 50 message JSON strings | None |
+| `room:{roomId}:members` | Set | Set of active userIds | None |
+| `presence:{roomId}:{userId}` | String | `"1"` | 30 sec |
+| `ratelimit:{userId}` | String | Integer count | 60 sec |
+| `msgcount:{roomId}` | String | Integer count | None |
+| `roomcount:{roomId}` | String | Integer count | None |
+
+---
+
+## ❓ Common Interviewer Questions + Answers
+
+**Q: Why did you use Redis instead of just PostgreSQL for everything?**
+> Redis is an in-memory store — reads and writes are sub-millisecond. For a real-time chat app, we need presence tracking and message delivery that's faster than a database round trip. PostgreSQL is durable and relational — good for user data and history. Redis is fast — good for live state. We use both for what they're best at.
+
+**Q: How does Socket.io scale across multiple servers?**
+> Without pub/sub, users connected to different server instances can't see each other's messages. We use Redis pub/sub: when instance A publishes a message to `"room:{roomId}"`, all instances' subscribers receive it and deliver to their own connected clients. This is the standard pattern for scaling Socket.io horizontally.
+
+**Q: What is Supabase RLS and why does it matter?**
+> Row-Level Security is a PostgreSQL feature where the database evaluates a security policy on every query. Example: "a user can only update their own profile row." When the backend uses `createUserClient(token)`, it sends the JWT so Supabase knows which user is making the request, and the RLS policy runs correctly. The `supabaseAdmin` bypasses this — we only use it in background jobs that have no user context.
+
+**Q: What happens if Redis goes down?**
+> Auth middleware falls back to calling Supabase directly (slower but works). Profile reads fall back to Supabase (the profile route tries Redis first, then falls back). Chat history would come from Supabase's `messages` table via the `/history` endpoint. The app degrades gracefully — it becomes slower but doesn't break.
+
+**Q: Why fire-and-forget for Supabase message inserts?**
+> Message delivery via pub/sub is already instant — we don't need to wait for the database write. By not awaiting the Supabase insert, we remove its latency from the critical path. If it fails, we log the error. In a production system, you'd add a retry queue or a reconciliation job. This is a deliberate trade-off: lower latency vs. absolute durability.
+
+**Q: What is the `typeKey` field for?**
+> `typeKey` is the combination of `response` (Q3) and `medium` (Q5), e.g., `"analytical:verbal"`. It was designed as a grouping key for future features — specifically, if you want to run AI reframing of messages by personality type, you only need to process once per unique `typeKey` instead of once per user in the room (O(personality types) instead of O(room size)).
+
+**Q: How does the onboarding quiz slide animation work?**
+> The card has a CSS class that's either `onboarding-card--in` or `onboarding-card--out`. When a user selects an option: set class to `out`, wait 280ms for the CSS exit animation, change the question content, set class to `in`. React's `key` prop on the card causes it to remount on each question change, which triggers the entry animation fresh each time.
+
+---
+
+## 📦 Tech Stack Summary
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Frontend framework | React 19 + Vite | Fast dev server, JSX, component model |
+| Frontend routing | react-router-dom v7 | Client-side navigation + route guards |
+| WebSocket client | socket.io-client | Matches server, handles reconnection |
+| Auth + Database | Supabase | PostgreSQL + Auth + RLS built-in |
+| Backend framework | Express.js | Minimal, flexible, widely known |
+| WebSocket server | Socket.io | Rooms, namespaces, built-in reconnection |
+| Cache / Pub-Sub | Upstash Redis (ioredis) | In-memory speed + pub/sub for scaling |
+| Unique IDs | uuid (v4) | Collision-free message/room IDs |
+| Dev server | nodemon | Auto-restart on file changes |

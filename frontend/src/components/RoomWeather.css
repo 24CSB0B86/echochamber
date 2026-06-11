@@ -1,0 +1,17 @@
+/* ─────────────────────────────────────────────
+   RoomWeather Canvas — ambient background layer
+   ───────────────────────────────────────────── */
+
+.room-weather-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;        /* behind everything (messages z-index: 10+) */
+  pointer-events: none;
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .room-weather-canvas { opacity: 0.4; }
+}

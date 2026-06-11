@@ -1,0 +1,47 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   src/styles/tokens.css
+   EchoChamber Design Tokens — single source of truth for all visual values.
+   Import this first in any CSS file that needs design tokens.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Backgrounds ──────────────────────────────────────────────────────── */
+  --bg-base:           #0d0d14;
+  --bg-glass:          rgba(13, 13, 20, 0.85);
+  --bg-surface:        rgba(255, 255, 255, 0.05);
+  --bg-surface-hover:  rgba(255, 255, 255, 0.08);
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --border-subtle:     rgba(255, 255, 255, 0.06);
+  --border-medium:     rgba(255, 255, 255, 0.10);
+  --border-accent:     rgba(124, 111, 247, 0.30);
+
+  /* ── Accent colours ───────────────────────────────────────────────────── */
+  --accent-violet:     #7c6ff7;
+  --accent-teal:       #4ecdc4;
+  --accent-violet-dim: rgba(124, 111, 247, 0.22);
+  --accent-teal-dim:   rgba(78, 205, 196, 0.12);
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --text-primary:      rgba(255, 255, 255, 0.88);
+  --text-secondary:    rgba(255, 255, 255, 0.50);
+  --text-muted:        rgba(255, 255, 255, 0.28);
+
+  /* ── Radii ────────────────────────────────────────────────────────────── */
+  --radius-sm:         8px;
+  --radius-md:         12px;
+  --radius-lg:         16px;
+  --radius-pill:       999px;
+
+  /* ── Fonts ────────────────────────────────────────────────────────────── */
+  --font-ui:           'DM Sans', system-ui, sans-serif;
+  --font-mono:         'DM Mono', 'Fira Mono', monospace;
+
+  /* ── Shadows ──────────────────────────────────────────────────────────── */
+  --shadow-violet-glow: 0 0 6px rgba(124, 111, 247, 0.8);
+  --shadow-teal-glow:   0 0 6px rgba(78, 205, 196, 0.6);
+
+  /* ── Transitions ──────────────────────────────────────────────────────── */
+  --transition-fast:   150ms ease;
+  --transition-base:   200ms ease;
+}

@@ -1,0 +1,19 @@
+# ── Environment / Secrets ─────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Dependencies ──────────────────────────────
+node_modules/
+
+# ── Logs ──────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+
+# ── OS / Editor ───────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

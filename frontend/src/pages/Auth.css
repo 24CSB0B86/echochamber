@@ -1,0 +1,257 @@
+/* src/pages/Auth.css
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Auth page styles — dark glassmorphism, DM Sans, violet accent
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+/* ── Page Container ─────────────────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100vh;
+  background: #0a0a0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  position: relative;
+  overflow: hidden;
+  padding: 1rem;
+}
+
+/* ── Ambient Gradient Orbs ──────────────────────────────────────────────────── */
+.auth-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  animation: orb-float 8s ease-in-out infinite;
+}
+
+.auth-orb--1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(124, 111, 247, 0.25) 0%, transparent 70%);
+  top: -150px;
+  right: -100px;
+  animation-delay: 0s;
+}
+
+.auth-orb--2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(78, 205, 196, 0.2) 0%, transparent 70%);
+  bottom: -100px;
+  left: -80px;
+  animation-delay: -4s;
+}
+
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-30px) scale(1.05); }
+}
+
+/* ── Glass Card ─────────────────────────────────────────────────────────────── */
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 2.5rem 2rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 0 0 1px rgba(124, 111, 247, 0.1),
+    0 25px 50px rgba(0, 0, 0, 0.5);
+  animation: card-appear 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes card-appear {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Logo ───────────────────────────────────────────────────────────────────── */
+.auth-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.auth-logo__text {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f4f3f8;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.auth-tagline {
+  color: rgba(244, 243, 248, 0.45);
+  font-size: 0.875rem;
+  margin: 0 0 1.75rem;
+}
+
+/* ── Tab Switcher ───────────────────────────────────────────────────────────── */
+.auth-tabs {
+  display: flex;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 1.75rem;
+  gap: 4px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: rgba(244, 243, 248, 0.45);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-tab--active {
+  background: rgba(124, 111, 247, 0.2);
+  color: #b8b0ff;
+  box-shadow: 0 0 0 1px rgba(124, 111, 247, 0.3);
+}
+
+.auth-tab:hover:not(.auth-tab--active) {
+  color: rgba(244, 243, 248, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Form ───────────────────────────────────────────────────────────────────── */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(244, 243, 248, 0.6);
+  letter-spacing: 0.01em;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #f4f3f8;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.auth-input::placeholder {
+  color: rgba(244, 243, 248, 0.25);
+}
+
+.auth-input:focus {
+  border-color: rgba(124, 111, 247, 0.6);
+  box-shadow: 0 0 0 3px rgba(124, 111, 247, 0.12);
+}
+
+/* ── Feedback ───────────────────────────────────────────────────────────────── */
+.auth-error {
+  font-size: 0.8125rem;
+  color: #ff8080;
+  background: rgba(255, 107, 107, 0.08);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.auth-message {
+  font-size: 0.8125rem;
+  color: #80ffdb;
+  background: rgba(128, 255, 219, 0.08);
+  border: 1px solid rgba(128, 255, 219, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+/* ── Submit Button ──────────────────────────────────────────────────────────── */
+.auth-btn {
+  width: 100%;
+  padding: 0.8rem 1.5rem;
+  background: linear-gradient(135deg, #7c6ff7 0%, #5b4fe8 100%);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  box-shadow: 0 4px 20px rgba(124, 111, 247, 0.35);
+  letter-spacing: 0.01em;
+}
+
+.auth-btn:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 25px rgba(124, 111, 247, 0.45);
+}
+
+.auth-btn:active:not(:disabled) {
+  transform: translateY(0px);
+}
+
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Loading Spinner ────────────────────────────────────────────────────────── */
+.auth-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 2rem 1.25rem;
+    border-radius: 20px;
+  }
+}
