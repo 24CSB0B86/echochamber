@@ -3,10 +3,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Groq LLM client — used exclusively for personality-aware message reframing.
  *
- * Model: llama3-8b-8192
- *   - Fast inference (~150ms on Groq's infrastructure)
- *   - Small enough to be cheap; large enough for tone-shift tasks
- *   - 8192 context window is more than enough for a single chat message
+ * Model: llama-3.3-70b-versatile
+ *   - Best available production model on Groq as of 2026
+ *   - Superior tone-shift quality over smaller 8B models
+ *   - Still very fast on Groq's LPU infrastructure (~150–200ms)
+ *   - 128k context window, more than enough for single chat messages
  *
  * We do NOT stream here.
  *   Streaming would let the first token appear faster, but we deliver to
@@ -36,9 +37,9 @@ const groq = new Groq({
 });
 
 // ── Model config ──────────────────────────────────────────────────────────────
-// llama-3.1-8b-instant: the current Groq-hosted fast model.
-// (llama3-8b-8192 was decommissioned — same capability, new model ID)
-const MODEL = 'llama-3.1-8b-instant';
+// llama-3.3-70b-versatile: best available production model on Groq.
+// Replaces llama-3.1-8b-instant — better quality reframing, still fast.
+const MODEL = 'llama-3.3-70b-versatile';
 
 /**
  * reframeMessage(rawContent, recipientTypeKey) → string

@@ -1,0 +1,2486 @@
+================================================================================
+                    ECHOCHAMBER — COMPLETE PROJECT DOCUMENTATION
+                 Real-time Personality-Aware Chat Application
+================================================================================
+
+Last updated: 2026-06-26
+Project Location: c:\Users\sangr\Desktop\EchoChamber
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1.  PROJECT OVERVIEW
+  2.  WHAT ECHOCHAMBER DOES (Core Concept)
+  3.  FULL TECHNOLOGY STACK
+  4.  ARCHITECTURE OVERVIEW
+  5.  PERFORMANCE BOTTLENECKS IDENTIFIED & FIXED (All 11)
+  6.  PROJECT DIRECTORY STRUCTURE
+  7.  DATABASE SCHEMA (Supabase / PostgreSQL)
+  8.  REDIS KEY SCHEMA
+  9.  BACKEND — COMPLETE BREAKDOWN
+      9.1  Entry Point (src/index.js)
+      9.2  Authentication Module (src/auth/supabase.js)
+      9.3  Auth Middleware (src/middleware/auth.js)
+      9.4  Onboarding Route (src/routes/onboarding.js)
+      9.5  Profile Route (src/routes/profile.js)
+      9.6  Rooms Route (src/routes/rooms.js)
+      9.7  Socket.io Setup (src/socket/index.js)
+      9.8  Room Handler (src/socket/roomHandler.js)
+      9.9  Redis Pub/Sub (src/socket/pubsub.js)
+      9.10 Reframe Handler (src/socket/reframeHandler.js)
+      9.11 Groq Service (src/services/groq.js)
+      9.12 Sentiment Service (src/services/sentiment.js)
+      9.13 Reframe Cache (src/services/reframeCache.js)
+      9.14 Background Job (src/jobs/syncRoomCounts.js)
+      9.15 Redis Library (src/lib/redis.js)
+      9.16 Instance ID (src/lib/instanceId.js)
+      9.17 Backend package.json (dependencies)
+ 10.  FRONTEND — COMPLETE BREAKDOWN
+      10.1  App Entry (main.jsx + App.jsx)
+      10.2  Auth Page (pages/Auth.jsx)
+      10.3  Onboarding Page (pages/Onboarding.jsx)
+      10.4  Chat Page (pages/Chat.jsx)
+      10.5  Profile Context (context/ProfileContext.jsx)
+      10.6  useSocket Hook (hooks/useSocket.js)
+      10.7  useRoom Hook (hooks/useRoom.js)
+      10.8  useWeather Hook (hooks/useWeather.js)
+      10.9  useUnread Hook (hooks/useUnread.js)
+      10.10 RoomList Component (components/RoomList.jsx)
+      10.11 RoomWeather Component (components/RoomWeather.jsx)
+      10.12 MessageList Component (components/MessageList.jsx)
+      10.13 MessageBubble Component (components/MessageBubble.jsx)
+      10.14 MessageInput Component (components/MessageInput.jsx)
+      10.15 OnlineAvatars Component (components/OnlineAvatars.jsx)
+      10.16 AvatarShape Component (components/AvatarShape.jsx)
+      10.17 Avatar Shapes Utility (utils/avatarShapes.js)
+      10.18 Design Tokens (styles/tokens.css)
+      10.19 Frontend Supabase Client (lib/supabase.js)
+      10.20 Vite Configuration (vite.config.js)
+      10.21 HTML Entry Point (index.html)
+      10.22 Frontend package.json (dependencies)
+ 11.  DATA FLOW — MESSAGE LIFECYCLE
+ 12.  SOCKET.IO EVENT REFERENCE
+ 13.  REST API ENDPOINTS
+ 14.  PERSONALITY SYSTEM EXPLAINED
+ 15.  EMOTIONAL WEATHER SYSTEM EXPLAINED
+ 16.  GROQ REFRAMING SYSTEM EXPLAINED
+ 17.  RATE LIMITING — TWO-LAYER SYSTEM
+ 18.  HORIZONTAL SCALING DESIGN
+ 19.  ENVIRONMENT VARIABLES
+ 20.  LOCAL SETUP & RUNNING
+ 21.  DEPLOYMENT (Render + Vercel)
+ 22.  INTERVIEW CHEAT SHEET
+ 23.  BUILD ORDER & TIMELINE
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+EchoChamber is a full-stack, production-hardened, real-time chat application
+with a unique distinguishing feature: the SAME message is experienced
+differently by every recipient based on their personality profile.
+
+The project was built as a learning exercise that deliberately identifies and
+fixes 11 performance bottlenecks that would kill a naive implementation at
+scale. Every architectural decision is documented with a rationale and an
+interview-ready explanation.
+
+Total cost to run: $0.00 (all services used have free tiers)
+Build time: approximately 2 weeks
+Prompts used to build it: 4 (architectural phases)
+
+================================================================================
+2. WHAT ECHOCHAMBER DOES (Core Concept)
+================================================================================
+
+1. USER SIGNS UP: Registers with email + password via Supabase Auth.
+
+2. PERSONALITY ONBOARDING: Answers 5 rapid-fire questions that generate:
+   - A unique HEX color (deterministic, from answer sum % 12)
+   - An avatar shape (circle/triangle/square/hexagon/star)
+   - A typeKey (e.g. "analytical:verbal") used for message reframing grouping
+   - Personality traits: setting, time, response, social, medium
+
+3. ENTERS A CHAT ROOM: Connects via WebSocket (Socket.io).
+
+4. SENDS A MESSAGE: The raw text is broadcast via Redis Pub/Sub to all server
+   instances. Then Groq's Llama 3.1 API reframes the message tone for EACH
+   unique personality type present in the room — in parallel, and cached.
+
+5. RECIPIENTS SEE THEIR VERSION: Each user sees the message reframed to match
+   their personality type. The sender always sees their own original message.
+   Reframing is invisible to users by default (they can toggle to see original).
+
+6. ROOM HAS EMOTIONAL WEATHER: Every message triggers a sentiment analysis
+   (using the 'sentiment' npm package — no API call, ~1ms). The rolling average
+   of sentiment scores determines the room's weather state (calm/warm/heated/
+   tense/stormy), displayed as a Canvas animation in the background.
+   This is computed AFTER message delivery so it never delays the message.
+
+================================================================================
+3. FULL TECHNOLOGY STACK
+================================================================================
+
+Layer           | Technology              | Purpose
+----------------|-------------------------|----------------------------------
+Frontend        | React 19 + Vite         | UI framework, fast dev server
+Styling         | Vanilla CSS             | Custom glassmorphism design
+Fonts           | DM Sans + DM Mono       | Google Fonts (loaded in index.html)
+Routing         | react-router-dom v7     | Client-side routing
+Real-time       | Socket.io client        | WebSocket with fallbacks
+Auth (frontend) | @supabase/supabase-js   | Sign in / sign up on frontend
+Backend         | Node.js + Express       | REST API server
+WebSocket       | Socket.io server        | Real-time bidirectional events
+Cache + Pub/Sub | Redis via Upstash       | Profiles, auth cache, presence,
+                |                         | history, reframe cache, pub/sub
+Database + Auth | PostgreSQL via Supabase | Persistent storage + auth
+LLM (reframing) | Groq API (llama-3.1-8b-instant) | Personality tone reframing
+Sentiment       | 'sentiment' npm package | Room emotional weather scoring
+Visuals         | Browser Canvas API      | Animated weather background
+Backend host    | Render.com              | Free Node.js hosting
+Frontend host   | Vercel                  | Free React hosting
+
+NOTE on Groq model: The code comment in groq.js notes that llama3-8b-8192 was
+decommissioned and replaced. The actual model in use is llama-3.1-8b-instant
+(const MODEL = 'llama-3.1-8b-instant' in src/services/groq.js).
+
+Dependencies — Backend (from backend/package.json):
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cors":                  "^2.8.5",
+    "dotenv":                "^16.4.5",
+    "express":               "^4.19.2",
+    "groq-sdk":              "^1.2.1",
+    "ioredis":               "^5.4.1",
+    "sentiment":             "^5.0.2",
+    "socket.io":             "^4.8.3",
+    "uuid":                  "^14.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+
+Dependencies — Frontend (from frontend/package.json):
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
+    "react":                 "^19.2.6",
+    "react-dom":             "^19.2.6",
+    "react-router-dom":      "^7.17.0",
+    "socket.io-client":      "^4.8.3"
+  },
+  "devDependencies": {
+    "@eslint/js":                  "^10.0.1",
+    "@types/react":                "^19.2.14",
+    "@types/react-dom":            "^19.2.3",
+    "@vitejs/plugin-react":        "^6.0.1",
+    "eslint":                      "^10.3.0",
+    "eslint-plugin-react-hooks":   "^7.1.1",
+    "eslint-plugin-react-refresh":  "^0.5.2",
+    "globals":                     "^17.6.0",
+    "vite":                        "^8.0.12"
+  }
+
+================================================================================
+4. ARCHITECTURE OVERVIEW
+================================================================================
+
+  Browser
+    |  Socket.io (WebSocket)         HTTP (REST)
+    V                                     V
+  Express + Socket.io server ──── /api/rooms, /api/profile, /api/onboarding
+    |              |
+    |         Redis (Upstash)
+    |    ┌────────────────────────────────────────────────────┐
+    |    │  auth:{token}               5-min token cache      │
+    |    │  profile:{userId}           personality HASH       │
+    |    │  history:{roomId}           last 50 messages List  │
+    |    │  room:{roomId}:members      presence Set           │
+    |    │  presence:{roomId}:{userId} TTL key (30s)          │
+    |    │  ratelimit:{userId}         msg count/60s counter  │
+    |    │  msgcount:{roomId}          write-behind counter   │
+    |    │  roomcount:{roomId}         member count           │
+    |    │  weather:{roomId}           pub/sub channel        │
+    |    │  weather:{roomId}           score List (last 20)   │
+    |    │  weatherts:{roomId}         timestamp List         │
+    |    │  roomweather:{roomId}       weather state HASH     │
+    |    │  reframe:{hash}:{typeKey}   Groq reframe cache     │
+    |    └────────────────────────────────────────────────────┘
+    |              |
+    |         Supabase (Postgres)
+    |    Tables: profiles, rooms, messages
+    |    Auth: email/password JWT
+    |
+    └── Groq API (llama-3.1-8b-instant)
+         Personality-aware message reframing
+
+Multi-instance scaling:
+  - Multiple server instances all connect to the SAME Redis
+  - Messages published to Redis Pub/Sub channel "room:{roomId}"
+  - Each instance's subscriber delivers to its own connected sockets
+  - instanceId stamp prevents duplicate delivery (see Section 9.9)
+
+================================================================================
+5. PERFORMANCE BOTTLENECKS IDENTIFIED & FIXED
+================================================================================
+
+# | Bottleneck                   | Impact                          | Fix Applied
+--|------------------------------|---------------------------------|------------------------------------------
+1 | 49 Groq calls per message    | Exhausts free API tier in       | Group recipients by typeKey (max 9
+  | in a 50-person room          | minutes                         | groups) + Redis cache for reframes
+--|------------------------------|---------------------------------|------------------------------------------
+2 | ~104 Redis commands per      | App dies in one day of use      | Pipeline all commands per operation
+  | message delivery             | on free Upstash tier            | (batches N round trips into 1)
+--|------------------------------|---------------------------------|------------------------------------------
+3 | KEYS "online:*" scans        | O(N) on ALL Redis keys,         | Replace with Redis Set per room:
+  | entire keyspace for presence | slows with scale, blocks Redis  | SADD/SREM/SMEMBERS (O(members only))
+--|------------------------------|---------------------------------|------------------------------------------
+4 | Supabase auth network call   | 50 users × every request =      | Cache token→userId in Redis with
+  | on every REST request        | 50 round trips per burst        | 5-min TTL (1 call per 5-min window)
+--|------------------------------|---------------------------------|------------------------------------------
+5 | UPDATE rooms SET count+1     | Row lock contention under       | Redis INCR (atomic, lock-free) +
+  | row lock contention          | concurrent messages, deadlocks  | background sync job every 60s
+--|------------------------------|---------------------------------|------------------------------------------
+6 | Sentiment + weather update   | Adds latency to every message   | setImmediate defers to next event
+  | blocks message delivery      | send on critical path           | loop tick — message delivered first
+--|------------------------------|---------------------------------|------------------------------------------
+7 | Canvas requestAnimationFrame | Wastes CPU/battery on all open  | Page Visibility API: pause RAF loop
+  | runs when tab is hidden      | tabs simultaneously             | when document.hidden is true
+--|------------------------------|---------------------------------|------------------------------------------
+8 | No rate limit on WebSocket   | Trivial to flood the server     | Token bucket in Redis: INCR per user
+  | send_message event           | programmatically                | key, max 30 msg/min, EXPIRE at first
+--|------------------------------|---------------------------------|------------------------------------------
+9 | All 5000 messages rendered   | 5000 DOM nodes, severe layout   | Virtual list: render only ~30 visible
+  | as DOM nodes (frontend)      | thrashing, bad performance      | messages, spacer divs maintain height
+--|------------------------------|---------------------------------|------------------------------------------
+10| Every new message re-renders | O(visible messages) re-renders  | React.memo with custom comparator
+  | all MessageBubble components | on every incoming message       | (only re-render if content changed)
+--|------------------------------|---------------------------------|------------------------------------------
+11| pubsub.js delivers raw msg   | Frontend deduplication drops    | instanceId stamp: pubsub skips same-
+  | before reframeAndDeliver     | reframed version (wrong content)| instance messages (handled by reframe)
+
+================================================================================
+6. PROJECT DIRECTORY STRUCTURE
+================================================================================
+
+EchoChamber/
+├── README.md                         Project setup + architecture doc
+├── render.yaml                       Render.com deployment config
+├── project_discription.md            Full build guide with all 4 prompts
+├── echochamber_complete_guide_tillprompt2  Build guide (prompts 1-2)
+├── .gitignore
+│
+├── backend/
+│   ├── package.json                  Node.js dependencies + scripts
+│   ├── .env                          Actual environment variables (gitignored)
+│   ├── .env.example                  Template for environment variables
+│   ├── db/
+│   │   └── schema.sql                Supabase SQL schema + RLS policies
+│   └── src/
+│       ├── index.js                  SERVER ENTRY POINT — wires everything
+│       ├── auth/
+│       │   └── supabase.js           Supabase client + auth helper functions
+│       ├── middleware/
+│       │   └── auth.js               JWT validation with Redis token cache
+│       ├── routes/
+│       │   ├── onboarding.js         POST /api/onboarding
+│       │   ├── profile.js            GET /api/profile/:userId
+│       │   └── rooms.js              GET+POST /api/rooms, GET history
+│       ├── socket/
+│       │   ├── index.js              Socket.io initialization + auth middleware
+│       │   ├── roomHandler.js        All room Socket.io event handlers
+│       │   ├── pubsub.js             Redis Pub/Sub subscriber (scaling layer)
+│       │   └── reframeHandler.js     Grouped + cached Groq message reframing
+│       ├── services/
+│       │   ├── groq.js               Groq LLM client wrapper
+│       │   ├── sentiment.js          Sentiment analysis + room weather update
+│       │   └── reframeCache.js       Redis cache layer for Groq results
+│       ├── jobs/
+│       │   └── syncRoomCounts.js     Write-behind job: Redis → Postgres sync
+│       └── lib/
+│           ├── redis.js              Shared ioredis singleton client
+│           └── instanceId.js         Unique server instance UUID
+│
+└── frontend/
+    ├── package.json                  React dependencies + scripts
+    ├── .env                          Frontend environment variables (gitignored)
+    ├── .env.example                  Template for frontend env variables
+    ├── vite.config.js                Vite + dev proxy to backend
+    ├── vercel.json                   Vercel SPA routing config
+    ├── index.html                    HTML entry point (DM Sans + DM Mono fonts)
+    ├── eslint.config.js              ESLint configuration
+    └── src/
+        ├── main.jsx                  React app bootstrap
+        ├── App.jsx                   Router + auth guards (RequireProfile)
+        ├── index.css                 Global base styles
+        ├── context/
+        │   └── ProfileContext.jsx    Profile state (shared across all pages)
+        ├── hooks/
+        │   ├── useSocket.js          Socket.io connection lifecycle
+        │   ├── useRoom.js            Room state + events + send logic
+        │   ├── useWeather.js         Listens to weather_update events
+        │   └── useUnread.js          Unread counts per room (useRef, no re-render)
+        ├── pages/
+        │   ├── Auth.jsx + Auth.css             Sign in / Sign up page
+        │   ├── Onboarding.jsx + Onboarding.css  5-question personality quiz
+        │   └── Chat.jsx + Chat.css              Main chat interface
+        ├── components/
+        │   ├── RoomList.jsx + RoomList.css      Sidebar room list + create
+        │   ├── RoomWeather.jsx + RoomWeather.css Canvas ambient weather BG
+        │   ├── MessageList.jsx + MessageList.css Virtual scrolling message list
+        │   ├── MessageBubble.jsx + MessageBubble.css Individual chat bubble
+        │   ├── MessageInput.jsx + MessageInput.css Textarea + send button
+        │   ├── OnlineAvatars.jsx + OnlineAvatars.css Stacked online user dots
+        │   └── AvatarShape.jsx                 Memoized SVG personality shape
+        ├── styles/
+        │   └── tokens.css            Design token CSS variables (source of truth)
+        ├── lib/
+        │   └── supabase.js           Frontend Supabase client (anon key only)
+        └── utils/
+            └── avatarShapes.js       SVG path data for 5 avatar shapes
+
+================================================================================
+7. DATABASE SCHEMA (Supabase / PostgreSQL)
+================================================================================
+
+FILE: backend/db/schema.sql
+
+--- TABLE: profiles ---
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  user_id          uuid REFERENCES auth.users(id) ON DELETE CASCADE
+  color            varchar(7)      -- hex color e.g. '#7c6ff7'
+  avatar           varchar(20)     -- 'circle'|'triangle'|'square'|'hexagon'|'star'
+  personality_json jsonb           -- { setting, time, response, social, medium, typeKey }
+  display_name     varchar(50)
+  created_at       timestamptz DEFAULT now()
+
+  Index: profiles_user_id_idx (unique) on user_id
+
+  RLS Policies:
+    - SELECT: public (anyone can read profiles)
+    - ALL (INSERT/UPDATE/DELETE): auth.uid() = user_id (own row only)
+
+--- TABLE: rooms ---
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  name          varchar(80) UNIQUE NOT NULL
+  description   varchar(200)
+  created_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL
+  synced_count  integer DEFAULT 0   -- synced from Redis INCR every 60s
+  created_at    timestamptz DEFAULT now()
+
+  NOTE: NO real-time message_count column (bottleneck fix #5).
+        Message counts live in Redis key "msgcount:{roomId}" and are
+        synced to synced_count every 60 seconds by syncRoomCounts.js.
+
+  RLS Policies:
+    - SELECT: public
+    - INSERT: auth.uid() IS NOT NULL (any authenticated user)
+    - UPDATE: auth.uid() = created_by (room creator only)
+
+--- TABLE: messages ---
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  room_id     uuid REFERENCES rooms(id) ON DELETE CASCADE
+  sender_id   uuid REFERENCES auth.users(id) ON DELETE SET NULL
+  content     text NOT NULL        -- raw content only, reframed is never stored
+  sent_at     timestamptz DEFAULT now()
+
+  NOTE: The app inserts messages with a client-generated UUID via uuid() in
+        roomHandler.js. The schema allows this (no ALWAYS GENERATED constraint).
+
+  Index: idx_messages_room_sent on (room_id, sent_at DESC)
+         -- optimizes "give me last 50 messages in room X" query
+
+  RLS Policies:
+    - SELECT: public (chat is public within rooms)
+    - INSERT: auth.uid() = sender_id (can only send as yourself)
+
+================================================================================
+8. REDIS KEY SCHEMA
+================================================================================
+
+Key Pattern                  | Type   | Content                        | TTL
+-----------------------------|--------|--------------------------------|-------
+auth:{token}                 | String | "{userId}|{email}"             | 300s (5min)
+profile:{userId}             | Hash   | All personality fields         | None
+history:{roomId}             | List   | Last 50 JSON message strings   | None
+room:{roomId}:members        | Set    | Set of userId strings          | None
+presence:{roomId}:{userId}   | String | "1"                            | 30s
+ratelimit:{userId}           | String | Message count integer          | 60s (window)
+msgcount:{roomId}            | String | Message count integer          | None
+roomcount:{roomId}           | String | Member count integer           | None
+weather:{roomId}             | List   | Last 20 sentiment score strings| None
+weatherts:{roomId}           | List   | Last 20 timestamp strings      | None
+roomweather:{roomId}         | Hash   | { state, avgScore, velocity,  | 120s
+                             |        |   volatility }                 |
+reframe:{hash16}:{typeKey}   | String | Groq reframed text             | 3600s (1hr)
+
+Pub/Sub Channels:
+  room:{roomId}    -- chat messages (subscribed by pubsub.js with pattern "room:*")
+  weather:{roomId} -- weather updates (subscribed with pattern "weather:*")
+
+Notes on design decisions:
+  - "auth:{token}": key is the full JWT string. ioredis handles long keys.
+  - "reframe:{hash}:{typeKey}": hash is sha256(rawContent).slice(0,16) — 16
+    chars is 64-bit which is collision-resistant for a chat app. Keeps keys small.
+    Key example: "reframe:a3f1b2c4d5e6f7a8:analytical:verbal"
+  - "room:{roomId}:members": Redis Set (not KEYS pattern) for O(1) add/remove
+    and O(members) list — crucial for avoiding the KEYS anti-pattern.
+  - presence TTL 30s: client sends heartbeat every 20s. If client dies without
+    leave_room, key auto-expires within 30s.
+  - WEATHER_WINDOW = 20 (last 20 scores/timestamps kept)
+  - WEATHER_TTL = 120s (roomweather hash expires if room goes quiet)
+
+================================================================================
+9. BACKEND — COMPLETE BREAKDOWN
+================================================================================
+
+--- 9.1 ENTRY POINT: src/index.js ---
+
+Purpose: Bootstraps the entire backend server.
+
+What it does:
+  1. Imports dotenv/config (ES module import, not require)
+  2. Creates Express app and HTTP server
+  3. Configures CORS: reads FRONTEND_URL from env (comma-separated for multiple
+     origins), always allows localhost:5173 and 5174 for local development
+  4. Configures express.json() with 10kb limit (rejects oversized payloads)
+  5. Registers routes:
+     GET  /health             → health check endpoint (for Render)
+     /api/onboarding          → onboardingRouter
+     /api/profile             → profileRouter
+     /api/rooms               → roomsRouter
+  6. 404 and global error handlers
+  7. Creates http.Server (needed to share with Socket.io)
+  8. Calls initSocket(server) to set up WebSocket layer
+  9. Listens on PORT (default 3001)
+ 10. Calls startSyncJob() to begin write-behind sync job
+ 11. Registers SIGTERM/SIGINT handlers for graceful shutdown:
+     - clearInterval(syncJobId)
+     - io.close()
+     - server.close()
+
+Key code details:
+  const ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    ...(process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.split(',').map(u => u.trim())
+      : []),
+  ];
+
+  Reason: FRONTEND_URL can be a comma-separated list of allowed origins,
+  supporting both production Vercel URL and local dev simultaneously.
+
+  CORS is configured with credentials: true (required for cookies/auth).
+  Requests with no origin (curl, Postman) are allowed through.
+
+  NOTE: startSyncJob() runs AFTER server.listen() — this is by design so the
+  server starts serving immediately and the background job is a side effect.
+
+--- 9.2 AUTHENTICATION MODULE: src/auth/supabase.js ---
+
+Purpose: Supabase client factory + auth helper functions.
+
+Exports three clients:
+  1. supabase (default export): anon key singleton. Used for auth ops.
+     RLS applies. Never used for DB writes from server.
+
+  2. createUserClient(token): Per-request factory. Creates a Supabase client
+     that sends the user's JWT on every request via Authorization header.
+     Supabase sees auth.uid() = real user, so RLS passes correctly.
+     NOT a singleton — each request gets its own client so tokens never bleed.
+     Configuration:
+       global: { headers: { Authorization: `Bearer ${token}` } }
+       auth: { persistSession: false }
+     Usage: const userClient = createUserClient(req.token)
+
+  3. supabaseAdmin: service role key client. Bypasses RLS entirely.
+     ONLY for background jobs (syncRoomCounts.js).
+     Falls back to anon client with console.warn if SERVICE_ROLE_KEY not set.
+     NEVER expose this key to the frontend.
+
+Auth helper functions (thin wrappers — nothing imports supabase-js directly):
+  - signUp(email, password)   → supabase.auth.signUp({ email, password })
+  - signIn(email, password)   → supabase.auth.signInWithPassword(...)
+  - signOut()                 → supabase.auth.signOut()
+  - getUser(token)            → supabase.auth.getUser(token) ← NETWORK CALL
+
+Why getUser is expensive:
+  It's an HTTP call to Supabase's auth server (~50-100ms per call).
+  This is what the Redis token cache (auth middleware) is designed to avoid
+  calling more than once per 5-minute window.
+
+Startup validation:
+  if (!supabaseUrl || !supabaseAnonKey): throws Error with clear message.
+  Fails fast on startup rather than crashing mid-request.
+
+--- 9.3 AUTH MIDDLEWARE: src/middleware/auth.js ---
+
+Purpose: Validates Bearer JWT on every protected REST request.
+         BOTTLENECK FIX #4: Redis token cache to avoid repeated Supabase calls.
+
+Flow:
+  1. Read Authorization: Bearer {token} header → return 401 if missing
+     (checks for "Bearer " prefix)
+  2. Check Redis: GET "auth:{token}"
+     - HIT: parse "{userId}|{email}" via split('|') → set req.user + req.token → next()
+     - MISS: call supabase.getUser(token) [expensive ~50-100ms network call]
+             → if invalid: return 401
+             → if valid: SET "auth:{token}" "{userId}|{email}" EX 300
+             → set req.user + req.token → next()
+  3. Error: return 500
+
+Configuration:
+  TOKEN_CACHE_TTL = 300 (5 minutes) — same value in socket/index.js
+
+Why pipe-separated "{id}|{email}" instead of JSON?
+  Avoids JSON.parse overhead on every cache hit. Simple split('|') is faster.
+
+Why this is safe:
+  JWTs are immutable. If a user logs out, Supabase invalidates the session
+  server-side. Worst case: a logged-out user's token stays cached for 5 minutes.
+  Acceptable for a chat app. For banking: add a Redis blocklist on logout.
+
+req.token is attached so route handlers can create user-scoped Supabase clients
+(createUserClient(req.token)) that pass RLS policies correctly.
+
+--- 9.4 ONBOARDING ROUTE: src/routes/onboarding.js ---
+
+Purpose: Computes personality profile from quiz answers and stores it in
+         both Redis (live source of truth) and Supabase (durable backup).
+
+Endpoint: POST /api/onboarding (protected via authMiddleware)
+
+Request body: { answers: [1,2,1,3,2], displayName: "Alice" }
+  - answers: array of exactly 5 integers, each 1-3
+  - Validation: !Array.isArray || length !== 5 → 400
+  - Per-answer validation: !Number.isInteger || a < 1 || a > 3 → 400
+
+Personality mappings (deterministic from answer index):
+  Q1 (answers[0]): 1→'nature', 2→'ocean', 3→'urban'            → trait: setting
+  Q2 (answers[1]): 1→'night',  2→'day',   3→'evening'           → trait: time
+  Q3 (answers[2]): 1→'analytical', 2→'emotional', 3→'avoidant'  → trait: response
+  Q4 (answers[3]): 1→'introvert', 2→'ambivert', 3→'extrovert'   → trait: social
+  Q5 (answers[4]): 1→'verbal', 2→'visual', 3→'auditory'         → trait: medium
+
+Derived values:
+  typeKey:   `${response}:${medium}` e.g. "analytical:verbal"
+             9 possible combinations (3×3). Grouping key for Groq reframing.
+  color:     COLOR_PALETTE[answerSum % 12]  (sum of all 5 answers, range 5-15)
+  avatar:    AVATAR_SHAPES[(answers[2] - 1) % 5]  (based on Q3 answer)
+  displayName: displayName?.trim() || `User${userId.slice(0,6)}`
+
+COLOR_PALETTE (12 colors, deterministic):
+  '#7c6ff7' violet, '#4ecdc4' teal, '#f7c948' amber, '#ff6b6b' coral,
+  '#a8e6cf' mint, '#c9b1ff' lavender, '#ff9a3c' orange, '#00b4d8' sky blue,
+  '#f72585' pink, '#3a86ff' bright blue, '#80ffdb' seafoam, '#ffbe0b' yellow
+
+AVATAR_SHAPES: ['circle', 'triangle', 'square', 'hexagon', 'star']
+  Note: only 3 shapes are directly accessible (answers 1,2,3 → indices 0,1,2)
+  Hexagon/star would require answers > 3 (currently not possible)
+
+Storage:
+  1. Redis HSET "profile:{userId}" {...profile}  (no TTL — permanent)
+     Uses HSET which allows individual field reads (HGET "profile:X" "typeKey")
+  2. Supabase upsert into profiles table using createUserClient(req.token)
+     (uses onConflict: 'user_id' so re-taking onboarding updates the row)
+     Supabase data shape:
+       { user_id, color, avatar, display_name, personality_json: {...} }
+
+Response: 201 { profile: { userId, displayName, setting, time, response, social,
+                              medium, typeKey, color, avatar } }
+
+Error handling: If Supabase write fails, the request still succeeds (Redis is
+the live source of truth). The failure is logged but not propagated.
+
+--- 9.5 PROFILE ROUTE: src/routes/profile.js ---
+
+Purpose: Fetches a user's personality profile. Public endpoint.
+         Implements cache-aside pattern: Redis first, Supabase on miss.
+
+Endpoint: GET /api/profile/:userId (no auth required — profiles are public)
+
+Flow:
+  1. HGETALL "profile:{userId}" from Redis
+     - ioredis returns {} for missing keys (not null) — check for 'userId' field
+     - HIT: return { profile, source: 'redis' }
+  2. Redis MISS:
+     - Query Supabase profiles table
+     - 404 if not found
+     - Flatten Supabase row into flat profile shape:
+       { userId, displayName, color, avatar, ...personality_json }
+     - HSET "profile:{userId}" (re-hydrate Redis, no TTL)
+     - Return { profile, source: 'supabase' }
+
+Called by:
+  - Frontend ProfileContext.jsx on app load (to restore profile from session)
+  - Auth.jsx on sign-in (to check if profile exists and route to /chat vs /onboarding)
+  - Socket.io auth middleware if profile not in Redis
+
+--- 9.6 ROOMS ROUTE: src/routes/rooms.js ---
+
+Purpose: CRUD for chat rooms with live message counts from Redis.
+
+Endpoints:
+
+  GET /api/rooms (public — uses supabaseAdmin, no auth required)
+    1. Fetch all rooms from Supabase (id, name, description, created_at, synced_count)
+       Ordered by created_at DESC (newest first)
+    2. Pipeline Redis: GET "msgcount:{roomId}" for ALL rooms in ONE round trip
+    3. Merge: use Redis count if available, fallback to synced_count from DB
+    4. Return enriched rooms array with messageCount field
+
+    Pipeline detail:
+      const pipeline = redis.pipeline()
+      rooms.forEach(room => pipeline.get(`msgcount:${room.id}`))
+      const countResults = await pipeline.exec()
+      // countResults[i] = [error, value]
+
+  POST /api/rooms (protected via authMiddleware)
+    - Validates name (required, string, max 80 chars, trims)
+    - description: optional, trimmed, max 200 chars
+    - Uses createUserClient(req.token) to satisfy RLS "authenticated can insert"
+    - Generates UUID for room id via uuid() imported from 'uuid'
+    - Returns 201 { room: data }
+
+  GET /api/rooms/:roomId/history (public — uses supabaseAdmin)
+    - Queries messages table with JOIN to profiles (display_name, color, avatar,
+      personality_json)
+    - Last 50 messages ordered by sent_at DESC, then reversed for display
+    - Response: { messages: [...] }  (oldest first)
+    - Select query:
+      `id, content, sent_at, sender_id,
+       profiles:sender_id ( display_name, color, avatar, personality_json )`
+
+--- 9.7 SOCKET.IO SETUP: src/socket/index.js ---
+
+Purpose: Creates Socket.io server, attaches auth middleware, starts pub/sub.
+
+initSocket(httpServer):
+  1. Creates io = new Server(httpServer, { cors: { origin: FRONTEND_URL } })
+     NOTE: Socket.io CORS uses the raw string from FRONTEND_URL, NOT the
+     comma-separated multi-origin array that Express CORS uses. Single origin only.
+  2. Attaches auth middleware (runs ONCE per connection attempt):
+     a. Read token from socket.handshake.auth?.token → reject AUTH_MISSING if missing
+     b. Check Redis "auth:{token}" cache (same cache as HTTP middleware)
+        - HIT: parse userId from cached "{userId}|{email}"
+        - MISS: call supabase.getUser(token), cache result with EX TOKEN_CACHE_TTL
+     c. HGETALL "profile:{userId}" from Redis
+        - Reject AUTH_ERROR-like PROFILE_NOT_FOUND if no profile
+     d. Attach to socket:
+        socket.userId   = userId
+        socket.token    = token
+        socket.profile  = profile   ← CRITICAL: cached for entire connection lifetime
+        socket.typeKey  = profile.typeKey  ← quick access for reframe grouping
+  3. On 'connection': calls registerRoomHandlers(io, socket)
+  4. Handles 'profile_updated' event: socket.disconnect(true)
+     (triggers reconnect with new profile — used when user retakes onboarding)
+  5. On 'disconnect': logs "{socket.userId} — {reason}"
+  6. Calls startPubSub(io)
+  7. Returns io (for graceful shutdown in index.js)
+
+Why socket.profile is critical:
+  Storing the profile on the socket object means ZERO Redis calls during message
+  handling for sender profile lookup. This alone saves N-1 Redis calls per message
+  (where N is room size) for profile lookups.
+
+TOKEN_CACHE_TTL = 300 (same constant as auth middleware — kept in sync manually)
+
+--- 9.8 ROOM HANDLER: src/socket/roomHandler.js ---
+
+Purpose: All Socket.io room event handlers. The core real-time logic.
+
+Imports:
+  - uuid from 'uuid' (for message id generation)
+  - redis from '../lib/redis.js'
+  - createUserClient from '../auth/supabase.js'
+  - reframeAndDeliver from './reframeHandler.js'
+  - analyzeMessage, updateRoomWeather from '../services/sentiment.js'
+  - INSTANCE_ID from '../lib/instanceId.js'
+
+Rate limit constants:
+  RATE_LIMIT_MAX    = 30  (messages)
+  RATE_LIMIT_WINDOW = 60  (seconds)
+
+Redis key schema managed here:
+  "room:{roomId}:members"      — Set of active userIds
+  "presence:{roomId}:{userId}" — TTL key "1" EX 30
+  "history:{roomId}"           — List of last 50 messages
+  "ratelimit:{userId}"         — Counter with EXPIRE
+  "msgcount:{roomId}"          — Message count
+  "roomcount:{roomId}"         — Room member count
+
+Event handlers:
+
+  'join_room' ({ roomId }):
+    1. socket.join(roomId)  [Socket.io room]
+    2. SADD "room:{roomId}:members" userId  [O(1) — BOTTLENECK FIX #3]
+    3. SET "presence:{roomId}:{userId}" "1" EX 30
+    4. SMEMBERS "room:{roomId}:members" → get all member IDs
+    5. Pipeline HGETALL for each member profile [ONE round trip]
+       Filters out entries where profile?.userId is falsy
+    6. LRANGE "history:{roomId}" 0 49 → JSON.parse + reverse (oldest first)
+    7. HGETALL "roomweather:{roomId}" → current weather if exists
+    8. Emit to joining socket:
+       - 'room_history' { roomId, messages: history }
+       - 'online_users' { roomId, users: onlineUsers }
+       - 'weather_update' parsed HASH if weather.state exists
+         (avgScore → parseFloat, velocity → parseInt, volatility → parseFloat)
+    9. socket.to(roomId).emit('user_joined', { roomId, userId, profile })
+   10. INCR "roomcount:{roomId}"
+   11. console.log count of online users
+
+  'send_message' ({ roomId, content }):
+    STEP 1: Rate limiting (token bucket)
+      const key = "ratelimit:{userId}"
+      const count = await redis.incr(key)
+      if count === 1: redis.expire(key, RATE_LIMIT_WINDOW)   [starts 60s window]
+      if count > RATE_LIMIT_MAX: emit 'rate_limited' → return
+      NOTE: INCR+EXPIRE is not atomic. Use Lua script in production:
+        redis.eval("local c=redis.call('INCR',KEYS[1])
+                    if c==1 then redis.call('EXPIRE',KEYS[1],60) end
+                    return c", 1, key)
+
+    STEP 2: Validate + build message object
+      trimmed = content.trim().slice(0, 500)
+      if (!trimmed) return
+      { id: uuid(), roomId, senderId, rawContent: trimmed, content: trimmed,
+        sentAt: new Date().toISOString(), senderProfile: socket.profile,
+        instanceId: INSTANCE_ID }
+      senderProfile: socket.profile  ← from socket object, ZERO Redis calls
+
+    STEP 3: Pipeline — 4 Redis commands in ONE round trip
+      pipeline.lpush("history:{roomId}", messageJson)
+      pipeline.ltrim("history:{roomId}", 0, 49)
+      pipeline.incr("msgcount:{roomId}")
+      pipeline.publish("room:{roomId}", messageJson)
+      await pipeline.exec()
+      [BOTTLENECK FIX #2: was 4 separate calls at ~20ms each = ~80ms]
+
+    STEP 4: Supabase insert — fire and forget (no await)
+      const userClient = createUserClient(socket.token)
+      userClient.from('messages').insert({
+        id, room_id: roomId, sender_id: socket.userId,
+        content: trimmed, sent_at: sentAt
+      }).then(...)
+      [Redis is live source of truth; Supabase is durable backup]
+
+    STEP 5: reframeAndDeliver(io, message) — await
+      [Delivers reframed content to each recipient by personality type]
+
+    STEP 6: setImmediate(() => { analyzeMessage; updateRoomWeather })
+      [BOTTLENECK FIX #6: weather runs AFTER message delivery — never blocks]
+      Note: setImmediate vs setTimeout(fn, 0) — setImmediate runs in the "check"
+      phase (after I/O) and is more semantically explicit. Both work here.
+
+  'heartbeat' ({ roomId }):
+    SET "presence:{roomId}:{userId}" "1" EX 30
+    [Client sends every 20s — keeps presence alive]
+
+  'leave_room' ({ roomId }):
+    Delegates to _leaveRoom(io, socket, roomId)
+
+  'disconnect':
+    For every room in [...socket.rooms].filter(r => r !== socket.id):
+      calls _leaveRoom(io, socket, roomId)
+    (socket.rooms includes the socket's own ID as a special room — filtered out)
+
+Internal helper _leaveRoom(io, socket, roomId):
+  socket.leave(roomId)
+  SREM "room:{roomId}:members" socket.userId
+  DEL "presence:{roomId}:{socket.userId}"
+  io.to(roomId).emit('user_left', { roomId, userId: socket.userId })
+  console.log
+
+--- 9.9 REDIS PUB/SUB: src/socket/pubsub.js ---
+
+Purpose: Horizontal scaling via Redis Pub/Sub. Routes messages from other server
+         instances to the sockets connected to THIS instance.
+
+Why a separate Redis client?
+  A subscribed Redis client can ONLY send SUBSCRIBE/UNSUBSCRIBE/PING.
+  It cannot run HGETALL, LPUSH, etc.
+  Creating a dedicated subscriber keeps the main redis client free.
+  The subscriber uses maxRetriesPerRequest: null (retry forever — critical for
+  long-running subscriber connections).
+
+startPubSub(io):
+  1. Creates new Redis(REDIS_URL) subscriber client with TLS if rediss://
+  2. psubscribe('room:*', 'weather:*')  [two patterns in one call]
+  3. On 'pmessage' (pattern, channel, payload):
+
+     IF pattern === 'room:*':
+       Parse roomId from channel ("room:".length slice)
+       Parse message JSON
+
+       CRITICAL: instanceId check
+         if message.instanceId === INSTANCE_ID:
+           SKIP — reframeAndDeliver already handled this on THIS instance
+         else:
+           reframeAndDeliver(io, message).catch(...)
+           [cross-instance message — OUR clients didn't get it yet]
+
+     IF pattern === 'weather:*':
+       Parse roomId + weather JSON
+       io.to(roomId).emit('weather_update', weather)
+       [No instanceId check needed — weather is idempotent]
+
+Returns the subscriber client (currently unused by caller but good practice).
+
+The instanceId problem (why it exists):
+  roomHandler.js calls pipeline.publish("room:{roomId}", message) AND THEN
+  calls reframeAndDeliver(io, message). The pub/sub subscriber runs in the SAME
+  process and receives the publish event during the first await inside
+  reframeAndDeliver. Without the instanceId check:
+    - pubsub emits raw message to room (arrives first)
+    - frontend deduplicates by message ID → raw version wins
+    - reframed version arrives later but gets dropped (ID already seen)
+    - Result: ALL users see the unframed raw message. Reframing silently fails.
+
+  With instanceId check: same-instance messages are skipped by pubsub.
+  reframeAndDeliver handles delivery with the correct personality-specific content.
+
+--- 9.10 REFRAME HANDLER: src/socket/reframeHandler.js ---
+
+Purpose: The core bottleneck fix #1. Reduces N Groq calls to at most 9,
+         cached in Redis, delivered in parallel.
+
+reframeAndDeliver(io, message):
+
+  STEP 1: Get all socket IDs in the room
+    const roomSockets = io.sockets.adapter.rooms.get(message.roomId)
+    Return early if null or size === 0
+
+  STEP 2: Group sockets by typeKey — ZERO Redis calls
+    for socketId in roomSockets:
+      socket = io.sockets.sockets.get(socketId)
+      skip if socket.userId === message.senderId (sender gets raw)
+      typeKey = socket.typeKey || 'unknown'  ← fallback for missing profile
+      groups[typeKey].socketIds.push(socketId)
+
+    Maximum groups: 9 (3 response values × 3 medium values)
+    Regardless of room size, at most 9 Groq calls needed.
+
+    Edge case: if typeKeys.length === 0 (only sender in room):
+      → still calls _deliverToSender(io, message) and returns
+
+  STEP 3: Batch-check Redis cache — ONE pipeline round trip
+    const contentHash = hashContent(message.rawContent)  [from reframeCache.js]
+    for each typeKey: cachePipelineRead.get(`reframe:${contentHash}:${tk}`)
+    cacheResults = await cachePipelineRead.exec()
+
+  STEP 4: Separate hits from misses
+    hits = { typeKey: cachedString }
+    misses = [ typeKey, ... ]  (need Groq call)
+
+  STEP 5: Call Groq for misses — ALL IN PARALLEL (Promise.all)
+    groqResults = await Promise.all(misses.map(async (tk) => {
+      const reframed = await reframeMessage(rawContent, tk)
+      return { tk, reframed }
+    }))
+
+    Why parallel not sequential:
+      Sequential: 5 misses × 150ms = 750ms total latency
+      Parallel:   max(all call latencies) ≈ 150ms regardless of miss count
+
+  STEP 6: Write new reframes to Redis — ONE pipeline round trip
+    for each groqResult: cachePipelineWrite.set(`reframe:${hash}:${tk}`, reframed, 'EX', 3600)
+    Also merges into hits map: hits[tk] = reframed
+    Only runs if groqResults.length > 0
+
+  STEP 7: Deliver to each socket
+    for each (typeKey, group) in Object.entries(groups):
+      content = hits[typeKey] ?? message.rawContent  [fallback to raw]
+      for socketId in group.socketIds:
+        io.to(socketId).emit('new_message', {
+          ...message,
+          content,                      // ← reframed for this typeKey
+          rawContent: message.rawContent // ← preserved for display/toggle
+        })
+
+  STEP 8: Deliver raw to sender via _deliverToSender(io, message)
+
+Internal _deliverToSender(io, message):
+  Gets roomSockets from adapter (NOT all server sockets — important bug fix)
+  Iterates room's socket set looking for socket.userId === message.senderId
+  Emits 'new_message' with content set to rawContent (sender sees original)
+  BUG FIX note: Previously iterated io.sockets.sockets (ALL connected sockets
+  on the server across ALL rooms). Now iterates only the room's socket set —
+  correct and O(room size) instead of O(total connected users).
+
+Scaling math example:
+  Room of 50 users, 5 unique personality types, cold cache:
+    Before fix: 49 Groq calls (one per recipient)
+    After fix:  5 Groq calls (one per unique typeKey, all parallel)
+    Warm cache: 0 Groq calls
+    Redis round trips: 2 (1 read pipeline + 1 write pipeline)
+
+--- 9.11 GROQ SERVICE: src/services/groq.js ---
+
+Purpose: Wraps Groq SDK for personality-aware message reframing.
+
+Model: llama-3.1-8b-instant
+  const MODEL = 'llama-3.1-8b-instant'
+  Note: llama3-8b-8192 was decommissioned. Same capability, new model ID.
+  Fast inference (~150ms on Groq's infrastructure)
+  8192 context window (more than enough for a single chat message)
+
+Initialization:
+  Groq SDK reads GROQ_API_KEY from process.env automatically.
+  If key missing: logs a console.warn (not an error — graceful degradation)
+  new Groq({ apiKey: process.env.GROQ_API_KEY })
+
+reframeMessage(rawContent, recipientTypeKey) → Promise<string>:
+  - Fast-path: return rawContent immediately if !process.env.GROQ_API_KEY
+  - System prompt:
+      "You are a subtle communication translator. Reframe how a chat message
+       SOUNDS to a specific personality type — same facts, different tone.
+       Under 2 sentences. Never reveal you're reframing."
+  - User prompt:
+      `Message: '${rawContent}'\nRecipient type: ${typeKey}\nReframe for this personality.`
+  - temperature: 0.7 (creative but not random)
+  - max_tokens: 150 (keep it short — reframing not expanding)
+  - On any error (429, 401, timeout, network): return rawContent unchanged
+    [Graceful degradation — app works as normal chat if Groq is down]
+  - If model returns empty: return rawContent
+
+Why NOT streaming:
+  Streaming delivers the first token faster, but we deliver to multiple sockets
+  simultaneously. Getting the full string first lets us emit once to a group.
+  Managing per-group streams adds complexity for minimal UX gain in a chat context.
+
+--- 9.12 SENTIMENT SERVICE: src/services/sentiment.js ---
+
+Purpose: Analyzes message sentiment and updates room emotional weather.
+         BOTTLENECK FIX #6: called via setImmediate — never blocks message delivery.
+
+Constants:
+  WEATHER_WINDOW = 20  (rolling window size)
+  WEATHER_TTL    = 120 (seconds — hash expires if room goes quiet)
+
+analyzeMessage(text) → { score }:
+  - Uses 'sentiment' npm package (AFINN-165 word list, synchronous, ~1ms, no API)
+  - Returns result.comparative (score normalized by word count)
+  - Clamped to [-5, 5] via Math.max(-5, Math.min(5, result.comparative))
+  - On error: returns { score: 0 } (neutral fallback, never crashes)
+  - Examples: "This is great!" → ~3, "I'm frustrated" → ~-3, "Meeting at 3pm" → 0
+
+updateRoomWeather(roomId, score, timestamp):
+  STEP 1: Append to rolling window (one write pipeline — ONE round trip)
+    writePipeline.lpush("weather:{roomId}", String(score))
+    writePipeline.ltrim("weather:{roomId}", 0, WEATHER_WINDOW - 1)  // 0-19 = 20 items
+    writePipeline.lpush("weatherts:{roomId}", String(timestamp))
+    writePipeline.ltrim("weatherts:{roomId}", 0, WEATHER_WINDOW - 1)
+    await writePipeline.exec()
+
+  STEP 2: Read rolling window (separate read pipeline — ONE round trip)
+    readPipeline.lrange("weather:{roomId}", 0, WEATHER_WINDOW - 1)
+    readPipeline.lrange("weatherts:{roomId}", 0, WEATHER_WINDOW - 1)
+    const [[, rawScores], [, rawTimestamps]] = await readPipeline.exec()
+
+  STEP 3: Compute metrics
+    scores     = rawScores.map(parseFloat)
+    timestamps = rawTimestamps.map(ts => parseInt(ts, 10))
+    avgScore:   mean of scores array
+    velocity:   count of timestamps where (now - ts < 60_000) [messages per minute]
+    volatility: standard deviation of scores (emotional swings)
+      mean     = avgScore
+      variance = scores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / scores.length
+      volatility = Math.sqrt(variance)
+
+  STEP 4: Determine weather state (priority order — most extreme checked first)
+    'stormy'  — avgScore > 4 OR velocity > 15  (overwhelming or very fast)
+    'warm'    — avgScore > 2 AND volatility < 1  (consistently good vibes)
+    'heated'  — avgScore > 2  (positive but volatile)
+    'stormy'  — avgScore < -2 AND volatility > 2  (negative + chaotic)
+    'tense'   — avgScore < -2  (negative but steady)
+    'calm'    — default (neutral)
+
+  STEP 5: Persist to Redis HASH
+    HSET "roomweather:{roomId}" { state, avgScore: toFixed(2), velocity: int, volatility: toFixed(2) }
+    EXPIRE "roomweather:{roomId}" 120
+
+  STEP 6: Publish to Redis channel "weather:{roomId}"
+    const weatherPayload = JSON.stringify({ state, avgScore, velocity, volatility })
+    redis.publish("weather:{roomId}", weatherPayload)
+    pubsub.js receives and forwards to io.to(roomId).emit('weather_update', ...)
+
+--- 9.13 REFRAME CACHE: src/services/reframeCache.js ---
+
+Purpose: Redis cache layer for Groq reframe results. Exports hashContent().
+
+hashContent(text) → 16-char hex string:
+  Uses Node.js built-in crypto module (no external dependency)
+  createHash('sha256').update(text).digest('hex').slice(0, 16)
+  Why sha256: stable, collision-resistant, compact (500-char message → 16 chars)
+  Why slice(0,16): 64-bit is more than collision-resistant for a chat app
+
+Cache key format: "reframe:{hashContent(rawContent)}:{typeKey}"
+  Example: "reframe:a3f1b2c4d5e6f7a8:analytical:verbal"
+  buildKey() is an internal helper (not exported)
+
+Exported functions:
+  getCached(rawContent, typeKey) → string | null
+    redis.get(buildKey(rawContent, typeKey))
+    Returns null on miss or Redis error (treats as miss)
+
+  setCached(rawContent, typeKey, reframed) → void
+    redis.set(buildKey(...), reframed, 'EX', 3600)
+    Returns silently on Redis error — caching failure never breaks delivery
+
+TTL: 3600s (1 hour). Chat messages are ephemeral.
+
+IMPORTANT NOTE: In reframeHandler.js, getCached/setCached are NOT used as
+individual calls. reframeHandler.js directly builds cache keys and uses pipeline
+operations for batch reads/writes. Only hashContent() is imported from this file.
+getCached/setCached are still useful utilities for single-item operations.
+
+--- 9.14 BACKGROUND JOB: src/jobs/syncRoomCounts.js ---
+
+Purpose: Write-behind caching sync — Redis INCR counters → Postgres every 60s.
+         BOTTLENECK FIX #5.
+
+The problem with naive Postgres approach:
+  UPDATE rooms SET synced_count = synced_count + 1 WHERE id = $roomId
+  Two concurrent messages: both try to read-increment-write the same row.
+  One transaction must wait for the other's row lock. At high throughput:
+  lock queue forms → serial writes → severe degradation.
+
+The fix: Redis INCR "msgcount:{roomId}" per message.
+  Redis is single-threaded → INCR is always atomic, no locks, sub-millisecond.
+  This job reads the accumulated counts and syncs to Postgres once per minute.
+
+startSyncJob():
+  Logs start message
+  Calls syncRoomCounts() immediately (no waiting for first interval)
+  Returns setInterval(syncRoomCounts, 60_000) — cleared on graceful shutdown
+
+syncRoomCounts():
+  1. redis.keys('roomcount:*')  [acceptable KEYS here: runs 1/min, rooms bounded]
+  2. Pipeline: GET for all keys → ONE round trip
+  3. Build updates array: { roomId, count } for each key (filter count > 0)
+  4. Promise.all: supabaseAdmin.from('rooms').update({ synced_count: count }).eq('id', roomId)
+  5. Logs count of rooms synced
+  6. On error: logs but does NOT crash (sync failure doesn't affect chat)
+
+Note: KEYS is O(N) on all Redis keys and generally an anti-pattern (Bottleneck #3).
+However, this job runs only once per minute on a background timer, not on the hot
+request path. The number of rooms is bounded and small. For very large deployments:
+replace with SCAN to avoid momentarily blocking Redis.
+
+--- 9.15 REDIS LIBRARY: src/lib/redis.js ---
+
+Purpose: Shared ioredis singleton client.
+
+Startup validation:
+  if (!process.env.REDIS_URL): throws Error (fails fast with clear message)
+
+Configuration:
+  new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 3,     [reduce for faster failure in dev]
+    tls: URL.startsWith('rediss://') ? {} : undefined  [Upstash requires TLS]
+  })
+
+Error handling:
+  redis.on('error', ...) → logs but does NOT crash
+  redis.on('connect', ...) → logs "[Redis] Connected to Upstash"
+  [App degrades gracefully: auth falls back to Supabase, reads fall back to DB]
+
+--- 9.16 INSTANCE ID: src/lib/instanceId.js ---
+
+Purpose: Unique ID per server process instance, used to prevent pub/sub
+         duplicate delivery.
+
+export const INSTANCE_ID = uuid()  // v4 UUID
+
+Generated once at process start. UUID changes on every restart and across instances.
+Stamped on every message in send_message handler.
+pubsub.js checks: if message.instanceId === INSTANCE_ID → skip.
+(See Section 9.9 for the full problem + solution explanation)
+
+On load: logs `[EchoChamber] Instance ID: ${INSTANCE_ID.slice(0, 8)}…`
+
+--- 9.17 BACKEND PACKAGE.JSON ---
+
+  "type": "module"  [ES Modules — import/export syntax throughout]
+  "main": "src/index.js"
+  "scripts":
+    "start": "node src/index.js"    [production]
+    "dev":   "nodemon src/index.js"  [development with auto-restart]
+
+================================================================================
+10. FRONTEND — COMPLETE BREAKDOWN
+================================================================================
+
+--- 10.1 APP ENTRY: main.jsx + App.jsx ---
+
+main.jsx: Standard React 19 bootstrap.
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+
+App.jsx: Root component — routing + auth guard.
+
+Routes:
+  /            → Auth page (sign in / sign up)
+  /onboarding  → Onboarding quiz (requires session)
+  /chat        → Chat (requires session + profile) [guarded by RequireProfile]
+  *            → Navigate to / (catch-all)
+
+RequireProfile component:
+  - Reads { profile, isLoaded } from ProfileContext
+  - Returns null while loading (prevents flash of wrong state)
+  - Redirects to /onboarding if !profile
+  - Renders children if profile exists
+
+All routes wrapped in <ProfileProvider> so every page shares profile state.
+
+--- 10.2 AUTH PAGE: pages/Auth.jsx ---
+
+Sign in / Sign up page with glassmorphism card design.
+
+Design elements:
+  - Background: dark glassmorphism with two decorative gradient orbs (auth-orb--1, --2)
+  - Card: dark glassmorphism, backdrop blur
+  - Logo: SVG concentric circles (violet #7c6ff7 + teal #4ecdc4 accent)
+  - Font: DM Sans (loaded via Google Fonts in index.html)
+  - Tab switcher: "Sign In" / "Sign Up" tabs with auth-tab--active class
+
+State:
+  mode: 'signin' | 'signup'
+  email, password, displayName, loading, error, message
+
+Sign Up flow:
+  1. supabase.auth.signUp({ email, password, options: { data: { display_name } } })
+  2. If data.session returned immediately (email confirm disabled): navigate('/onboarding')
+  3. If no session (email confirm required): show "check your email" message
+
+Sign In flow:
+  1. supabase.auth.signInWithPassword({ email, password })
+  2. GET /api/profile/{userId} → if OK: setProfile() + navigate('/chat')
+  3. If not OK (any non-200): navigate('/onboarding')  [first-time or profile missing]
+
+Uses Supabase JS client DIRECTLY from frontend — no API call to backend for auth.
+Supabase handles all auth logic (email validation, hashing, session management).
+
+--- 10.3 ONBOARDING PAGE: pages/Onboarding.jsx ---
+
+5-question personality quiz with animated slide card transitions.
+
+QUESTIONS array (5 objects with: id, topic, emoji, question, options[3]):
+  Q1: 'Your World'    — mountains/ocean/city         → setting (id: 'q1', emoji: 🌍)
+  Q2: 'Your Time'     — 3am/noon/6pm                  → time    (id: 'q2', emoji: ⏰)
+  Q3: 'Your Reaction' — fix it/feel it/give space     → response (id: 'q3', emoji: 💭)
+  Q4: 'Your Energy'   — alone/small group/crowd        → social  (id: 'q4', emoji: ⚡)
+  Q5: 'Your Medium'   — words/images/music             → medium  (id: 'q5', emoji: 🎨)
+
+Each question card: emoji + topic label + question text + 3 option buttons
+  Option buttons have IDs: `option-${question.id}-${idx}` (e.g. "option-q1-0")
+  Options display: number badge + text + arrow ("→")
+
+State:
+  currentIndex: 0-4 (which question)
+  answers: accumulated 1-indexed answers array
+  slideDir: 'in' | 'out'
+  isTransitioning: boolean (prevents double-clicks)
+  loading: boolean (during API call)
+  error: string
+
+Animation:
+  - slideDir drives CSS class `onboarding-card--{slideDir}`
+  - When option selected (not last): setSlideDir('out') → delay(280ms) → advance → 'in'
+  - requestAnimationFrame × 2 before removing 'transitioning' flag
+  - CSS key-based re-mount: `key={currentIndex}` triggers fresh animation
+
+Progress bar:
+  - 5 segment dots (onboarding-progress-dot / --filled)
+  - Animated fill bar underneath (width = (currentIndex / 5) * 100%)
+  - role="progressbar" with aria-valuenow/min/max
+
+Final answer submission (submitProfile):
+  1. supabase.auth.getSession() → get session + access_token
+  2. displayName from session.user.user_metadata?.display_name
+  3. POST /api/onboarding with Bearer token + { answers, displayName }
+  4. On success: setProfile(profile) → delay(400ms) → navigate('/chat')
+
+delay() helper: returns new Promise(resolve => setTimeout(resolve, ms))
+
+--- 10.4 CHAT PAGE: pages/Chat.jsx ---
+
+Main chat interface — orchestrates all hooks and components.
+
+Layout:
+  ┌─────────────────────────────────────────┐
+  │ chat-header (fixed top bar)             │
+  ├────────────────┬────────────────────────┤
+  │ chat-sidebar   │  chat-main             │
+  │ (RoomList)     │   RoomWeather (canvas) │
+  │                │   MessageList          │
+  │                │   MessageInput         │
+  └────────────────┴────────────────────────┘
+
+Hooks used:
+  useRoom(activeRoomId) → { socket, messages, onlineUsers, isLoading, connected,
+                             toast, sendMessage }
+  useWeather(socket, activeRoomId) → weather state
+  useUnread(activeRoomId) → { increment, clear, getCount }
+
+State:
+  activeRoomId: string | null
+  sidebarOpen: boolean (mobile toggle)
+
+Header content:
+  - Hamburger button (id="toggle-sidebar", 3 <span> bars) → toggles sidebarOpen
+  - Room name indicator (activeRoomId → "#room", else "Select a room")
+  - Live weather pill: `chat-header__weather--${weatherState}`
+    Contains: <span.chat-header__weather-dot> + {weatherMeta.emoji} {weatherMeta.label}
+    Only shown if activeRoomId && weather
+  - <div.chat-header__spacer /> (flex spacer)
+  - OnlineAvatars (only if activeRoomId)
+
+WEATHER_META map (in Chat.jsx):
+  calm:   { emoji: '🌤', label: 'Calm' }
+  warm:   { emoji: '☀️',  label: 'Warm' }
+  heated: { emoji: '🔥', label: 'Heated' }
+  tense:  { emoji: '🌩', label: 'Tense' }
+  stormy: { emoji: '⛈', label: 'Stormy' }
+
+Placeholder when no room selected:
+  ⬡ icon + "Pick a room to start" h2 + "Messages adapt to your personality type."
+
+Mobile sidebar overlay:
+  .chat-sidebar-overlay div (click to close) rendered only if sidebarOpen
+  Sidebar has chat-layout--sidebar-open class on root + chat-sidebar--open on aside
+
+Toast notifications: absolute positioned
+  chat-toast--error, chat-toast--success, chat-toast--warn variants
+  role="alert" + id="toast-notification"
+
+handleSelectRoom(roomId): setActiveRoomId → clear(roomId) → setSidebarOpen(false)
+
+--- 10.5 PROFILE CONTEXT: context/ProfileContext.jsx ---
+
+Shared profile state for the entire app.
+
+ProfileProvider:
+  State: { profile, setProfile, isLoaded }
+
+  On mount (loadProfile):
+    1. supabase.auth.getSession() → check if user is logged in
+    2. If no session?.user: setIsLoaded(true) [profile stays null]
+    3. If session: userId = session.user.id
+    4. GET ${apiUrl}/api/profile/${userId}
+    5. If res.ok: setProfile(fetchedProfile)
+    6. If 404: profile stays null → App.jsx routes to /onboarding
+    7. Error: caught, logged
+    8. finally: always setIsLoaded(true)
+
+  apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+useProfile() hook:
+  const ctx = useContext(ProfileContext)
+  Throws "useProfile must be used inside <ProfileProvider>" if no context
+
+Profile shape:
+  { userId, displayName, setting, time, response, social, medium, typeKey, color, avatar }
+
+--- 10.6 useSocket HOOK: hooks/useSocket.js ---
+
+Manages Socket.io connection lifecycle.
+
+useSocket(roomId) → { socket, connected }
+
+Connection:
+  1. supabase.auth.getSession() → get access_token (returns early if no session)
+  2. io(API_URL, {
+       auth:       { token: session.access_token },
+       transports: ['websocket'],  // WebSocket only — skip long-polling
+       reconnection: true,
+       reconnectionAttempts: 10,
+       reconnectionDelay:    1000,
+     })
+  3. socketRef.current = socket (stored in ref, not state)
+  4. socket.on('connect')      → setConnected(true) + console.log
+  5. socket.on('disconnect')   → setConnected(false) + console.log
+  6. socket.on('connect_error') → setConnected(false) + console.error
+
+Heartbeat:
+  setInterval every 20,000ms (HEARTBEAT_INTERVAL_MS):
+    if socket.connected && roomId: socket.emit('heartbeat', { roomId })
+  [Keeps "presence:{roomId}:{userId}" TTL alive — server TTL is 30s]
+
+  NOTE: The second useEffect on roomId is empty (no body) — roomId updates
+  are naturally picked up by the heartbeat closure on next tick.
+
+Cleanup on unmount:
+  clearInterval(heartbeatRef.current)
+  socket.disconnect()
+  socketRef.current = null
+
+Returns { socket: socketRef.current, connected }
+  Note: returns ref value (not state) to avoid re-renders on socket events.
+  connected is state (triggers re-renders for UI updates).
+
+API_URL: import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+--- 10.7 useRoom HOOK: hooks/useRoom.js ---
+
+Room state management — wraps useSocket with all room-level logic.
+
+useRoom(roomId) → { socket, messages, setMessages, onlineUsers, isLoading,
+                    connected, toast, sendMessage }
+
+Constants:
+  CLIENT_RATE_LIMIT     = 30
+  CLIENT_RATE_WINDOW_MS = 60_000
+
+Client-side rate limiting:
+  msgCountRef = useRef(0)
+  rateLimitTimer = useRef(null)
+  On first message: setTimeout(reset, CLIENT_RATE_WINDOW_MS)
+  If count > limit: showToast('Slow down — max 30 messages per minute')
+  [UX-only guard: instant feedback without server round trip]
+  [Server Redis token bucket is the real enforcer]
+
+Socket event handlers (registered when socket + roomId change):
+  On mount: socket.emit('join_room', { roomId }) + setIsLoading(true)
+
+  'room_history': setMessages(history || []) + setIsLoading(false)
+
+  'new_message': deduplication by id
+    setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+
+  'online_users': setOnlineUsers(users || [])
+
+  'user_joined': add to onlineUsers (dedup by userId)
+
+  'user_left': filter from onlineUsers by userId
+
+  'rate_limited': showToast(message || fallback)
+
+On unmount:
+  socket.emit('leave_room', { roomId })
+  socket.off for all above events
+  Reset messages, onlineUsers, isLoading to defaults
+
+Reconnect toasts (SEPARATE effect — protects socket.io internal handlers):
+  socket.on('connect', onConnect)  → showToast('Back online ✓', 'success')
+                                   → re-emit 'join_room' to recover missed messages
+  socket.on('disconnect', onDisconnect) → showToast('Reconnecting…', 'warn')
+  Cleanup: socket.off('connect', onConnect) — removes ONLY our listener (not all)
+  [Separate effect with named functions so cleanup never removes socket.io's own handlers]
+
+sendMessage(content):
+  1. Validate: socket connected, roomId exists, content.trim().length <= 500
+  2. Client-side rate check (msgCountRef)
+  3. socket.emit('send_message', { roomId, content: trimmed })
+
+setMessages is exposed in return value for optimistic UI (MessageInput could use it)
+
+--- 10.8 useWeather HOOK: hooks/useWeather.js ---
+
+Listens to 'weather_update' socket events.
+
+useWeather(socket, roomId) → weather | null
+
+Takes an already-created socket (from useRoom) — does NOT create its own.
+This avoids opening a second WebSocket connection.
+
+'weather_update' arrives ~5-10ms AFTER 'new_message' (due to setImmediate on backend).
+Returns null initially (no weather until first message in room).
+Resets to null when leaving room (effect cleanup: setWeather(null)).
+
+Weather shape: { state, avgScore, velocity, volatility }
+  state:      'calm' | 'warm' | 'heated' | 'tense' | 'stormy'
+  avgScore:   number (-5 to 5)
+  velocity:   number (messages in last 60s)
+  volatility: number (std deviation of scores)
+
+Dependency array: [socket, roomId] — re-registers listener on room change.
+
+--- 10.9 useUnread HOOK: hooks/useUnread.js ---
+
+Tracks unread message counts per room WITHOUT triggering re-renders.
+
+Why useRef:
+  Unread counts update on EVERY incoming message (even background rooms).
+  useState would re-render the entire sidebar on every message.
+  useRef stores counts silently — sidebar badges re-render only on room switch.
+
+countsRef.current = { [roomId]: count }
+
+updateTitle() — called manually after modifying counts:
+  total = sum of all counts
+  If total > 0 && document.hidden: document.title = `(${total}) EchoChamber`
+  Else: document.title = 'EchoChamber'
+
+Effects:
+  1. On visibilitychange → visible: clear(activeRoomId) + updateTitle()
+  2. On activeRoomId change: countsRef.current[activeRoomId] = 0 + updateTitle()
+
+Public API:
+  increment(roomId): skip if (roomId === activeRoomId && !document.hidden)
+                     else: count += 1, updateTitle()
+  clear(roomId): count = 0, updateTitle()
+  getCount(roomId): return count || 0
+
+--- 10.10 RoomList COMPONENT: components/RoomList.jsx ---
+
+Glassmorphic sidebar with room list, create form, and user profile row.
+
+Props: { activeRoomId, onSelectRoom, getUnreadCount }
+
+Data fetching:
+  fetchRooms() → GET /api/rooms (public, no auth)
+  useEffect: fetchRooms() on mount + setInterval(fetchRooms, 30_000) (live refresh)
+  Cleanup: clearInterval on unmount
+
+Create room form (shown when showCreate):
+  handleCreate(e):
+    e.preventDefault()
+    GET supabase session → POST /api/rooms with Bearer token
+    Body: { name: newRoomName.trim(), description: newRoomDesc.trim() }
+    On success: prepend { ...room, messageCount: 0 } to rooms list, select it, hide form
+
+Sign out:
+  supabase.auth.signOut() + window.location.href = '/'
+
+Room list rendering:
+  Each room: # prefix + name + unread dot (if count > 0) + message count (999+ cap)
+  Active room: room-list__item--active
+  Keyboard accessible: tabIndex={0} + onKeyDown Enter → onSelectRoom
+  Room item id: `room-${room.id}`
+
+User profile row (bottom of sidebar):
+  AvatarShape component with profile.avatar + profile.color
+  Online indicator dot (always green — logged-in user is always online)
+  displayName + personalityType ("response · medium" e.g. "analytical · verbal")
+  Sign out button (⏻ power icon)
+
+Loading skeleton: 5 placeholder skeleton items (.room-list__skeleton)
+Empty state: "No rooms yet. Create one!"
+
+Reads profile from useProfile() hook (not from props)
+
+--- 10.11 RoomWeather COMPONENT: components/RoomWeather.jsx ---
+
+Canvas ambient background animation driven by room emotional state.
+BOTTLENECK FIX #7: Page Visibility API pauses RAF when tab is hidden.
+
+Props: { weatherState = 'calm' }
+
+PALETTES — orb definitions per state:
+  calm:   2 orbs, speed 0.008, cool blues/teals (rgba channels r2/g/b)
+          orb1: { x:0.65, y:0.35, r:260, r2:0,   g:205, b:196, a:0.11, phase:0   }
+          orb2: { x:0.20, y:0.70, r:220, r2:124, g:111, b:247, a:0.09, phase:2.1 }
+  warm:   2 orbs, speed 0.010, golden yellows
+  heated: 3 orbs, speed 0.015, amber/coral
+  tense:  2 orbs, speed 0.005, deep indigo (very slow)
+  stormy: 4 orbs, speed 0.025, red/crimson (fast)
+
+Each orb: { x, y } (0-1 fractions of canvas), r (px radius), r2/g/b (RGB), a (alpha),
+           phase (radian offset for breathing animation)
+
+Breathing animation: radius oscillates by ±12% using Math.sin(t + orb.phase)
+Orb rendering: radial gradient at 3 stops (center full alpha → mid 40% → edge 0)
+  grad.addColorStop(0,   `rgba(${r2}, ${g}, ${b}, ${a})`)
+  grad.addColorStop(0.5, `rgba(${r2}, ${g}, ${b}, ${a * 0.4})`)
+  grad.addColorStop(1,   `rgba(${r2}, ${g}, ${b}, 0)`)
+
+State transitions — smooth lerp over 3 seconds (~180 frames at 60fps):
+  On weatherState change: capture current blended palette → lerpT reset to 0
+  lerpTRef advances by 0.0055 per frame (1/180)
+  lerpPalette(from, to, t): interpolates all orb properties linearly
+  When orb counts differ: uses max count, wraps shorter array with modulo
+
+Canvas resize: reads getBoundingClientRect() and updates canvas.width/height if changed
+
+Page Visibility API:
+  isVisibleRef tracks document.hidden state
+  If !isVisible: RAF continues scheduling but skips drawing (early return)
+  On resume: drawing naturally picks up again
+  [Without this: 60fps canvas on ALL open tabs simultaneously]
+
+prefers-reduced-motion:
+  If matches: draw single static frame → no RAF loop started
+  [Accessibility compliance]
+
+The canvas is aria-hidden="true" (purely decorative)
+
+--- 10.12 MessageList COMPONENT: components/MessageList.jsx ---
+
+Virtualized message list — renders only ~30 visible messages.
+BOTTLENECK FIX #9: Virtual scrolling.
+
+Props: { messages, isLoading, currentUserId, currentUserProfile }
+
+Virtualization constants:
+  ITEM_HEIGHT  = 72  (estimated average message height in px)
+  BUFFER_ABOVE = 10  (extra items above visible window)
+  BUFFER_BELOW = 20  (extra items below visible window)
+
+Scroll tracking:
+  handleScroll(): reads scrollTop from containerRef.current
+  wasAtBottomRef: true if (scrollHeight - scrollTop - clientHeight < 80px)
+  [Auto-scroll only triggers if user was already at bottom]
+
+Container height:
+  setContainerH(el.clientHeight) on mount (measured once)
+  Default 600px before measurement
+
+Virtualization math:
+  visibleCount = Math.ceil(containerH / ITEM_HEIGHT)
+  startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_ABOVE)
+  endIndex = Math.min(messages.length, startIndex + visibleCount + BUFFER_ABOVE + BUFFER_BELOW)
+  visibleMessages = messages.slice(startIndex, endIndex)
+  spacerTop = startIndex × ITEM_HEIGHT     [div above visible items]
+  spacerBottom = Math.max(0, (messages.length - endIndex) × ITEM_HEIGHT)
+
+Spacer divs maintain correct scroll height so scrollbar behaves naturally.
+DOM nodes: ~30 at any time regardless of total message history length.
+
+Auto-scroll: useEffect on messages.length
+  if wasAtBottomRef.current: bottomRef.scrollIntoView({ behavior: 'smooth' })
+
+States:
+  isLoading → MessageSkeleton (6 animated placeholder bubbles)
+    Skeleton items alternate left/right (i % 3 === 1 → --right)
+    Components: .msg-skeleton__avatar, .msg-skeleton__name, .msg-skeleton__bubble
+    Variable bubble widths: `${30 + (i * 13) % 45}%`
+  no messages → empty state: 💬 icon + "No messages yet. Say hello!"
+  has messages → virtual list with spacers + <div ref={bottomRef} />
+
+Container: id="message-list", role implied by content
+
+--- 10.13 MessageBubble COMPONENT: components/MessageBubble.jsx ---
+
+Individual chat message bubble with reframe badge and raw toggle.
+BOTTLENECK FIX #10: React.memo with custom comparator.
+
+Props: { message, isOwn, recipientProfile }
+
+Memoization:
+  export default React.memo(MessageBubble, (prev, next) =>
+    prev.message.id      === next.message.id &&
+    prev.message.content === next.message.content &&
+    prev.message.status  === next.message.status &&
+    prev.isOwn           === next.isOwn
+  )
+  [Without this: every new message re-renders ALL bubbles in the list]
+
+Internal state:
+  showRaw: boolean (toggle between reframed and original content)
+
+Destructured from message:
+  senderProfile, content, rawContent, sentAt, status
+
+displayText:
+  showRaw ? (rawContent || content) : (content || rawContent)
+  [Graceful fallback either way]
+
+isReframed: !isOwn && content && rawContent && content !== rawContent
+  [Shows reframe badge only for others' messages that were actually reframed]
+
+ClockIcon SVG: 10×10 circle clock with hands (used in reframe badge)
+
+Features:
+  Avatar: AvatarShape SVG with profile color
+    Left side for others (msg-bubble__avatar)
+    Right side for own (msg-bubble__avatar--own)
+  Display name: shown for others only, colored with profile.color
+  Bubble: .msg-bubble__bubble
+    --raw class when showRaw
+    --streaming class when isSending
+  Content: <p className="msg-bubble__text">
+
+  Reframe row (if isReframed):
+    Badge: <ClockIcon> + "reframed for {response} · {medium}"
+    Toggle button: "[ see original ]" / "[ reframed ]"
+    title attribute shows full personality description
+
+  Status indicators:
+    isSending: "sending…" label
+    isFailed:  "failed" label with --failed color modifier
+
+  Time: sentAt formatted via toLocaleTimeString({ hour: '2-digit', minute: '2-digit' })
+
+Container: id={`msg-${message.id}`} (unique per message)
+Own messages: msg-bubble--own
+Others:       msg-bubble--other
+
+--- 10.14 MessageInput COMPONENT: components/MessageInput.jsx ---
+
+Auto-growing textarea with client-side rate limiting + character counter.
+
+Props: { onSend, disabled, profile }
+
+Constants:
+  MAX_CHARS          = 500
+  CLIENT_RATE_LIMIT  = 30
+  CLIENT_RATE_WINDOW = 60_000
+
+State:
+  content: string (current input)
+  rateLimitMsg: boolean (show/hide rate limit notice)
+  timeLeft: number (seconds remaining)
+
+Refs:
+  textareaRef: for direct DOM manipulation (height)
+  msgCount: useRef(0) (no re-render on increment)
+  resetTimer: useRef(null) (interval handle)
+
+canSendRate():
+  if (msgCount.current >= CLIENT_RATE_LIMIT): return false
+  increment msgCount
+  if first message: start countdown interval (1s tick, updates timeLeft)
+  if now at limit: setRateLimitMsg(true) + return false
+  return true
+
+autoGrow():
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 112)}px`  [max 4 rows]
+
+handleChange(e): setContent(value.slice(0, MAX_CHARS)) + autoGrow()
+
+handleSend():
+  Guard: !canSend (disabled, empty, or over limit)
+  Check canSendRate()
+  setContent('') + reset height + onSend(trimmed) + focus textarea
+
+handleKeyDown(e):
+  Enter (no shift): e.preventDefault() + handleSend()
+  Shift+Enter: normal newline behavior
+
+Character counter (shown when content.length > 400):
+  remaining < 50  → msg-input__counter--warn (yellow)
+  remaining <= 20 → msg-input__counter--red
+
+Personality lens row (below input):
+  "your lens:" label + {profile.response} tag + {profile.medium} tag
+  + "messages appear tuned to your style" hint
+  Each tag styled with --profile-color CSS variable
+  Only shown if lensType.length > 0
+
+Send button: SVG arrow-up icon (paper plane shape)
+  id="send-message-btn"
+  disabled when !canSend
+
+Textarea: id="message-textarea", placeholder changes to "Connecting…" when disabled
+
+Rate limit notice: role="alert" + "⏳ Rate limited — wait {timeLeft}s"
+
+Container: id="message-input-container"
+
+--- 10.15 OnlineAvatars COMPONENT: components/OnlineAvatars.jsx ---
+
+Stacked overlapping avatar circles showing online users.
+
+Props: { users = [] }
+
+MAX_SHOWN = 5
+  shown = users.slice(0, 5)
+  overflow = users.length - 5
+  If overflow > 0: +N chip (online-avatar--overflow)
+
+AvatarTooltip sub-component (not exported):
+  Renders div.online-avatar with --avatar-color CSS variable
+  Contains: .online-avatar__ring + AvatarShape (size=20)
+  tooltip: .online-avatar__tooltip (shown on hover via CSS)
+  Attributes: title={displayName} + aria-label={displayName}
+
+Container:
+  .online-avatars with aria-label="${users.length} online"
+
+--- 10.16 AvatarShape COMPONENT: components/AvatarShape.jsx ---
+
+Memoized SVG avatar for personality shapes.
+
+Props: { shape = 'circle', color = '#7c6ff7', size = 28, className = '' }
+
+Renders:
+  <svg width={size} height={size} viewBox="0 0 28 28" fill={color} aria-hidden="true">
+    <Tag {...s.props} />
+  </svg>
+  Where Tag = SHAPES[shape].type (e.g. 'circle', 'polygon', 'rect')
+  Falls back to SHAPES.circle if shape not found
+
+React.memo comparator:
+  prev.shape === next.shape && prev.color === next.color && prev.size === next.size
+  [shape and color are set at onboarding and never change during a session]
+
+Used in: MessageBubble, OnlineAvatars, RoomList (user row)
+
+--- 10.17 AVATAR SHAPES UTILITY: utils/avatarShapes.js ---
+
+SVG path data for all 5 personality avatar types (28×28 viewBox).
+Plain JS — no JSX. Used by AvatarShape.jsx which is the JSX entry point.
+
+export const SHAPES = {
+  circle:   { type: 'circle',  props: { cx: 14, cy: 14, r: 11 } },
+  triangle: { type: 'polygon', props: { points: '14,2 26,24 2,24' } },
+  square:   { type: 'rect',    props: { x: 2, y: 2, width: 24, height: 24, rx: 4 } },
+  hexagon:  { type: 'polygon', props: { points: '14,1 26,7.5 26,20.5 14,27 2,20.5 2,7.5' } },
+  star:     { type: 'polygon', props: { points: '14,1 17.5,10 27,10.5 20,17 22.5,27 14,21.5 5.5,27 8,17 1,10.5 10.5,10' } },
+}
+
+export const SHAPE_NAMES = Object.keys(SHAPES)  // ['circle', 'triangle', 'square', 'hexagon', 'star']
+
+Keys match the 'avatar' field stored in user profile.
+
+--- 10.18 DESIGN TOKENS: styles/tokens.css ---
+
+CSS custom properties — single source of truth for all visual values.
+Imported by component CSS files that need these tokens.
+
+:root {
+  /* Backgrounds */
+  --bg-base:          #0d0d14
+  --bg-glass:         rgba(13, 13, 20, 0.85)
+  --bg-surface:       rgba(255, 255, 255, 0.05)
+  --bg-surface-hover: rgba(255, 255, 255, 0.08)
+
+  /* Borders */
+  --border-subtle:  rgba(255, 255, 255, 0.06)
+  --border-medium:  rgba(255, 255, 255, 0.10)
+  --border-accent:  rgba(124, 111, 247, 0.30)
+
+  /* Accent colours */
+  --accent-violet:     #7c6ff7
+  --accent-teal:       #4ecdc4
+  --accent-violet-dim: rgba(124, 111, 247, 0.22)
+  --accent-teal-dim:   rgba(78, 205, 196, 0.12)
+
+  /* Text */
+  --text-primary:   rgba(255, 255, 255, 0.88)
+  --text-secondary: rgba(255, 255, 255, 0.50)
+  --text-muted:     rgba(255, 255, 255, 0.28)
+
+  /* Radii */
+  --radius-sm:   8px
+  --radius-md:   12px
+  --radius-lg:   16px
+  --radius-pill: 999px
+
+  /* Fonts */
+  --font-ui:   'DM Sans', system-ui, sans-serif
+  --font-mono: 'DM Mono', 'Fira Mono', monospace
+
+  /* Shadows */
+  --shadow-violet-glow: 0 0 6px rgba(124, 111, 247, 0.8)
+  --shadow-teal-glow:   0 0 6px rgba(78, 205, 196, 0.6)
+
+  /* Transitions */
+  --transition-fast: 150ms ease
+  --transition-base: 200ms ease
+}
+
+--- 10.19 FRONTEND SUPABASE CLIENT: lib/supabase.js ---
+
+export const supabase = createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)
+
+Startup validation:
+  if (!supabaseUrl || !supabaseKey): throws Error with clear message
+  Fails fast on startup rather than crashing at first auth call.
+
+Used for:
+  - Sign up / sign in / sign out (Auth.jsx)
+  - Session persistence in localStorage (automatic via SDK)
+  - Getting session + access_token for API calls (Onboarding.jsx, RoomList.jsx)
+
+The backend has its OWN Supabase client (src/auth/supabase.js).
+They share the same project URL but operate independently (separate processes).
+
+--- 10.20 VITE CONFIGURATION: vite.config.js ---
+
+plugins: [react()]
+
+server:
+  port: 5173  (default)
+
+  proxy (dev only):
+    '/api'       → target: 'http://localhost:3001', changeOrigin: true
+    '/socket.io' → target: 'http://localhost:3001', ws: true, changeOrigin: true
+
+  [Proxy avoids CORS issues when both run on different ports locally]
+  [In production, VITE_API_URL env var points directly to Render backend URL]
+
+--- 10.21 HTML ENTRY POINT: index.html ---
+
+<title>EchoChamber — Personality-Aware Chat</title>
+<meta name="description" content="Real-time chat that adapts messages to your personality type using Groq AI.">
+
+Google Fonts loaded via <link>:
+  DM Sans: opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600
+  DM Mono: wght@400;500
+  display=swap (non-blocking)
+
+favicon.svg referenced (exists in frontend/public/)
+
+<div id="root"></div> → React mounts here
+<script type="module" src="/src/main.jsx"> → ES module entry
+
+--- 10.22 FRONTEND PACKAGE.JSON ---
+
+  "type": "module"  [ES Modules]
+  "scripts":
+    "dev":     "vite"           [local dev server with HMR]
+    "build":   "vite build"     [production bundle → frontend/dist/]
+    "lint":    "eslint ."
+    "preview": "vite preview"   [preview production build locally]
+
+  ESLint config in eslint.config.js (not .eslintrc):
+    Uses @eslint/js + eslint-plugin-react-hooks + eslint-plugin-react-refresh
+
+================================================================================
+11. DATA FLOW — MESSAGE LIFECYCLE
+================================================================================
+
+When User A sends "Hey everyone!" in a room with 3 other users:
+
+[CLIENT A]
+  MessageInput → handleSend()
+  1. Client-side rate limit check (msgCountRef in useRoom + canSendRate in MessageInput)
+  2. socket.emit('send_message', { roomId, content: "Hey everyone!" })
+
+[BACKEND — send_message handler]
+  3.  Redis INCR "ratelimit:{userA}"  [rate check]
+  4.  Build message object: { id: uuid(), roomId, senderId, rawContent: "Hey everyone!",
+      content: "Hey everyone!", sentAt, senderProfile: socket.profile, instanceId }
+      (no Redis calls — senderProfile from socket object)
+  5.  PIPELINE (1 round trip):
+        LPUSH "history:{roomId}" messageJson
+        LTRIM "history:{roomId}" 0 49
+        INCR "msgcount:{roomId}"
+        PUBLISH "room:{roomId}" messageJson
+
+  6.  Supabase insert — fire and forget (no await)
+      userClient.from('messages').insert({id, room_id, sender_id, content, sent_at}).then(...)
+
+  7.  reframeAndDeliver(io, message) — AWAIT:
+        a. Get all sockets in room (io.sockets.adapter.rooms)
+        b. Group by typeKey (no Redis calls — profiles on socket objects)
+           e.g. group A: "analytical:verbal" [User B]
+                group B: "emotional:visual"   [User C]
+                group C: "avoidant:auditory"  [User D]
+        c. Pipeline: GET reframe cache for all 3 typeKeys (1 round trip)
+        d. Cache misses → Promise.all([Groq("analytical:verbal"), Groq("emotional:visual"),
+                                        Groq("avoidant:auditory")]) — all parallel ~150ms
+        e. Pipeline: SET new cache entries with EX 3600 (1 round trip)
+        f. Emit to each socket:
+           User B receives: "Hey everyone!" (analytical:verbal tone)
+           User C receives: "Hey everyone!" (emotional:visual tone)
+           User D receives: "Hey everyone!" (avoidant:auditory tone)
+           User A (sender) receives: "Hey everyone!" (raw, unmodified)
+
+  8.  setImmediate(() => {
+        const { score } = analyzeMessage("Hey everyone!")  → score ≈ 2
+        updateRoomWeather(roomId, score, Date.now())
+      })  ← runs AFTER step 7 completes (next event loop tick)
+
+[BACKEND — weather update (next event loop tick)]
+  9.  PIPELINE: LPUSH/LTRIM weather + weatherts lists (1 round trip)
+  10. PIPELINE: LRANGE both lists (1 round trip)
+  11. Compute avgScore, velocity, volatility → determine state (e.g. 'warm')
+  12. HSET "roomweather:{roomId}" { state, avgScore, velocity, volatility }
+  13. EXPIRE "roomweather:{roomId}" 120
+  14. redis.publish("weather:{roomId}", JSON.stringify({state, avgScore, velocity, volatility}))
+
+[BACKEND — pubsub.js (pattern weather:*)]
+  15. Receives weather publish → io.to(roomId).emit('weather_update', weather)
+
+[CLIENT B, C, D]
+  16. Receive 'new_message' with their personality-tailored version
+  17. MessageList updates via setMessages (dedup check by id)
+  18. MessageBubble renders with "reframed" badge (content !== rawContent)
+  19. ~5-10ms later: receive 'weather_update' → RoomWeather canvas lerps to new state
+
+Total path for message delivery: ~20ms (pipeline) + ~150ms (Groq parallel)
+Weather arrives: ~5-10ms after delivery (separate event)
+
+================================================================================
+12. SOCKET.IO EVENT REFERENCE
+================================================================================
+
+CLIENT → SERVER:
+  'join_room'    { roomId }              Join a chat room
+  'leave_room'   { roomId }              Leave a chat room
+  'send_message' { roomId, content }     Send a message (raw text, max 500 chars)
+  'heartbeat'    { roomId }              Keep presence TTL alive (every 20s)
+  'profile_updated'                      Trigger reconnect (after retaking onboarding)
+
+SERVER → CLIENT:
+  'room_history'  { roomId, messages }   Last 50 messages on join (oldest first)
+  'online_users'  { roomId, users }      Full online user list on join
+  'user_joined'   { roomId, userId, profile }  Someone joined the room
+  'user_left'     { roomId, userId }     Someone left the room
+  'new_message'   { id, roomId, senderId, content, rawContent, sentAt,
+                    senderProfile, instanceId }
+                                         Incoming message (content = reframed for recipient)
+  'weather_update' { state, avgScore, velocity, volatility }  Room mood update
+  'rate_limited'  { message }            Server rejected send (>30 msg/min)
+
+Connection errors (rejected in socket auth middleware):
+  'AUTH_MISSING'       — no token in handshake.auth
+  'AUTH_INVALID'       — token validation failed (Supabase returned error/no user)
+  'PROFILE_NOT_FOUND'  — user hasn't completed onboarding (no Redis profile)
+  'AUTH_ERROR'         — unexpected error during auth (catch block)
+
+================================================================================
+13. REST API ENDPOINTS
+================================================================================
+
+GET  /health
+  Public. Returns { status: 'ok', ts: ISO8601 }
+  Used by Render for health checks.
+
+POST /api/onboarding   (protected — requires Authorization: Bearer {token})
+  Body: { answers: [1,2,1,3,2], displayName: "Alice" }
+  Returns: 201 { profile: { userId, displayName, setting, time, response,
+                              social, medium, typeKey, color, avatar } }
+  Errors: 400 (invalid answers array or out-of-range values), 401 (no/bad token),
+          500 (unexpected error saving profile)
+
+GET  /api/profile/:userId   (public — no auth required)
+  Returns: 200 { profile, source: 'redis' | 'supabase' }
+  Errors: 400 (no userId param), 404 (profile not found), 500 (internal)
+
+GET  /api/rooms   (public)
+  Returns: 200 { rooms: [{ id, name, description, created_at, synced_count,
+                            messageCount }] }
+  messageCount is live Redis count (or synced_count fallback)
+  Ordered by created_at DESC
+
+POST /api/rooms   (protected)
+  Body: { name: "room name", description?: "optional" }
+  name max 80 chars, description max 200 chars
+  Returns: 201 { room: { id, name, description, created_by, created_at } }
+  Errors: 400 (no name), 401 (no token), 500 (internal)
+
+GET  /api/rooms/:roomId/history   (public)
+  Returns: 200 { messages: [{ id, content, sent_at, sender_id,
+                               profiles: { display_name, color, avatar, personality_json } }] }
+  Last 50 messages, oldest first.
+
+================================================================================
+14. PERSONALITY SYSTEM EXPLAINED
+================================================================================
+
+The 5-question quiz maps to 5 personality dimensions:
+
+  Question 1: WHERE would you rather be?
+    1 = deep in the mountains → setting: 'nature'
+    2 = at the ocean edge     → setting: 'ocean'
+    3 = somewhere in the city → setting: 'urban'
+
+  Question 2: WHEN do you feel most like yourself?
+    1 = 3am  → time: 'night'
+    2 = noon → time: 'day'
+    3 = 6pm  → time: 'evening'
+
+  Question 3: HOW do you respond to someone upset?
+    1 = figure out what went wrong → response: 'analytical'
+    2 = feel it with them          → response: 'emotional'
+    3 = give them space            → response: 'avoidant'
+
+  Question 4: WHERE do you feel most alive?
+    1 = alone, in my own world      → social: 'introvert'
+    2 = a small circle I trust      → social: 'ambivert'
+    3 = a crowd, the bigger the better → social: 'extrovert'
+
+  Question 5: HOW do you think best?
+    1 = words and conversations → medium: 'verbal'
+    2 = images and visuals      → medium: 'visual'
+    3 = music and sound         → medium: 'auditory'
+
+typeKey = `${response}:${medium}` — the reframe grouping key
+  Possible values: analytical:verbal, analytical:visual, analytical:auditory,
+                   emotional:verbal, emotional:visual, emotional:auditory,
+                   avoidant:verbal, avoidant:visual, avoidant:auditory
+  Maximum: 9 unique personality type combinations
+
+color = COLOR_PALETTE[(sum of all 5 answers) % 12]
+  Sum ranges from 5 (all 1s) to 15 (all 3s) → 11 distinct sums → 11 possible colors.
+  (12th color only accessible if sum wraps, which it can't in 1-3 range with 5 questions)
+  Same answers always produce same color (deterministic).
+
+avatar = AVATAR_SHAPES[(answers[2] - 1) % 5]
+  Q3 answer (1-3) → index 0-4 of shape array
+  Shapes: circle (index 0), triangle (1), square (2), hexagon (3), star (4)
+  Note: only 3 shapes accessible (answers 1,2,3 → indices 0,1,2)
+  Hexagon and star would require answers > 3 (currently not possible)
+
+================================================================================
+15. EMOTIONAL WEATHER SYSTEM EXPLAINED
+================================================================================
+
+The room "emotional weather" is a live ambient background that reflects the
+collective sentiment of the conversation in real-time.
+
+How it works (end-to-end):
+  1. Every message triggers analyzeMessage(rawContent) → score (-5 to +5)
+     Uses AFINN-165 word list: "love" = +3, "hate" = -3, neutral words = 0
+     Synchronous, ~1ms, no network call.
+
+  2. setImmediate defers updateRoomWeather — called AFTER message delivery.
+
+  3. Redis stores rolling window of last 20 scores + timestamps:
+     LPUSH/LTRIM "weather:{roomId}" and "weatherts:{roomId}"
+
+  4. Three metrics computed from the rolling window:
+     avgScore:   mean sentiment (positive = happy, negative = tense)
+     velocity:   messages in last 60 seconds (high = fast-paced conversation)
+     volatility: standard deviation of scores (high = erratic/unstable mood)
+
+  5. Weather state decision tree (priority order):
+     avgScore > 4 OR velocity > 15   → 'stormy'  (extreme or very fast)
+     avgScore > 2 AND volatility < 1 → 'warm'    (consistently positive)
+     avgScore > 2                    → 'heated'  (positive but volatile)
+     avgScore < -2 AND volatility > 2 → 'stormy' (negative + chaotic)
+     avgScore < -2                   → 'tense'   (negative but steady)
+     else                            → 'calm'    (neutral, default)
+
+  6. State published to Redis "weather:{roomId}" channel → all instances forward
+     to io.to(roomId).emit('weather_update', ...)
+
+  7. Frontend RoomWeather.jsx receives 'weather_update' via useWeather hook.
+     Canvas lerps smoothly to new state over ~3 seconds.
+
+Canvas animation states:
+  calm:   2 orbs, slow breathing (speed 0.008), cool blues/teals, ~11% opacity
+  warm:   2 orbs, medium breathing (speed 0.010), golden yellows, ~18% opacity
+  heated: 3 orbs, faster breathing (speed 0.015), amber/coral, ~17% opacity
+  tense:  2 orbs, very slow (speed 0.005), deep indigo, ~8% opacity
+  stormy: 4 orbs, fast speed (speed 0.025), red/crimson, ~16% opacity
+
+Performance optimizations:
+  - Page Visibility API: RAF skips drawing when tab is hidden (loop still schedules)
+  - prefers-reduced-motion: static tint, no animation
+  - Lerp transition prevents jarring state jumps (3 second smooth blend)
+  - Weather TTL 120s: hash expires if room goes quiet (no stale state)
+
+Weather on join:
+  When a user joins a room, they immediately receive the current weather state
+  via 'weather_update' emit in join_room handler (HGETALL "roomweather:{roomId}")
+  so they don't have to wait for the next message.
+
+================================================================================
+16. GROQ REFRAMING SYSTEM EXPLAINED
+================================================================================
+
+Core idea: The SAME message is expressed differently for different personality types.
+           An analytical person prefers direct, logical language.
+           An emotional person prefers empathetic, feeling-based language.
+           The same information, different tone.
+
+The three-level optimization:
+
+  LEVEL 1 — Type grouping (O(room) → O(personality types)):
+    Instead of one Groq call per recipient (50 users = 49 calls),
+    group recipients by typeKey (at most 9 unique groups).
+    A 50-person room with 5 unique types = 5 calls, not 49.
+    A 50-person room with 1 unique type = 1 call, not 49.
+
+  LEVEL 2 — Redis caching (O(types) → O(cache misses)):
+    Cache key: "reframe:{sha256(content).slice(0,16)}:{typeKey}"
+    If the same message pattern has been seen before for a given personality
+    type, return the cached reframe. Zero Groq calls.
+    1-hour TTL: ephemeral content, no need to cache indefinitely.
+
+  LEVEL 3 — Parallel execution (serial latency → single-call latency):
+    Cache misses called with Promise.all — all parallel.
+    5 misses × 150ms sequential = 750ms total.
+    5 misses × 150ms parallel   = ~150ms regardless of count.
+
+Groq prompt design:
+  System: "You are a subtle communication translator. Reframe how a chat message
+           SOUNDS to a specific personality type — same facts, different tone.
+           Under 2 sentences. Never reveal you're reframing."
+  User:   "Message: '{rawContent}'\nRecipient type: {typeKey}\nReframe for this personality."
+
+  Why "Under 2 sentences": Prevents model from expanding terse messages to paragraphs.
+  Why "Never reveal": Keeps the reframing invisible to the user (magic of the app).
+  temperature: 0.7 — creative enough to shift tone, not so random it changes meaning
+  max_tokens: 150 — short reframes, not essays
+
+Graceful degradation:
+  If Groq API is down, returns rawContent unchanged. App degrades to normal chat.
+  No errors shown to users — they just see the original message.
+  Missing GROQ_API_KEY: fast-path in reframeMessage() returns rawContent immediately.
+
+The sender's experience:
+  The sender ALWAYS sees their own raw message, unmodified.
+  Reframing your own words would be confusing and break "sent successfully" feedback.
+
+Users can toggle: click "[ see original ]" on a reframed bubble to see rawContent.
+  The backend never stores reframed content — only raw is in Supabase.
+  Reframing is always computed on-the-fly, always private to each user.
+
+'unknown' typeKey fallback:
+  If a socket somehow lacks a typeKey (profile missing), it's grouped under 'unknown'
+  and receives rawContent (the ?? fallback in reframeHandler delivery step).
+
+================================================================================
+17. RATE LIMITING — TWO-LAYER SYSTEM
+================================================================================
+
+Layer 1 — Client-side (UX guard):
+  Location: useRoom.js (msgCountRef) + MessageInput.jsx (canSendRate)
+  Limit: 30 messages per 60 seconds
+  Implementation: useRef counter + setTimeout reset (in MessageInput: setInterval countdown)
+  Purpose: Instant user feedback without server round trip
+  Security: NONE — can be bypassed. Client code is client code.
+  UX: Shows countdown timer "⏳ Rate limited — wait Xs"
+
+Layer 2 — Server-side (authoritative enforcer):
+  Location: roomHandler.js send_message handler
+  Implementation: Redis token bucket
+    INCR "ratelimit:{userId}"
+    On first message (count === 1): EXPIRE "ratelimit:{userId}" 60
+    If count > 30: emit 'rate_limited' → return
+  Note: INCR+EXPIRE is not perfectly atomic (crash between them = key without TTL)
+        Production solution: Lua script atomically does both in one command.
+
+Why two layers?
+  Client gives instant feedback (no latency).
+  Server actually enforces the limit (security, fairness).
+  "Never trust the client for security-critical limits."
+
+================================================================================
+18. HORIZONTAL SCALING DESIGN
+================================================================================
+
+The app supports multiple server instances (e.g., multiple Render instances)
+through Redis Pub/Sub as the cross-instance message bus.
+
+Single instance:
+  User A sends → roomHandler publishes to "room:{roomId}" → pubsub.js receives →
+  instanceId matches → SKIP (reframeAndDeliver already handled it) → done
+
+Multi-instance (e.g., User A on Server 1, User B on Server 2):
+  User A sends → Server 1 roomHandler publishes to "room:{roomId}"
+  Server 1 pubsub.js: instanceId matches → SKIP (reframeAndDeliver handles Server 1 clients)
+  Server 2 pubsub.js: instanceId DIFFERS → reframeAndDeliver(io, message)
+  Server 2 delivers reframed version to User B (connected to Server 2)
+
+All instances share:
+  - Redis (Upstash) — same URL → same Pub/Sub channels, same keys
+  - Supabase — same DB URL → same profiles, rooms, messages
+
+The instanceId stamps every message in the pipeline.publish() call so pubsub.js
+can differentiate its own instance's messages from other instances' messages.
+
+Redis keys that work across instances (global state):
+  - auth:{token} cache (any instance can validate any user's token)
+  - profile:{userId} hash (any instance reads the same profile)
+  - history:{roomId} list (any instance reads the same message history)
+  - room:{roomId}:members set (presence is global across instances)
+  - weather:{roomId} lists + roomweather hash (global weather state)
+
+================================================================================
+19. ENVIRONMENT VARIABLES
+================================================================================
+
+BACKEND (backend/.env):
+
+  SUPABASE_URL=https://<project-ref>.supabase.co
+    From: Supabase → Your Project → Settings → API
+
+  SUPABASE_ANON_KEY=<your-supabase-anon-key>
+    From: Supabase → Settings → API → anon key
+
+  SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>
+    From: Supabase → Settings → API → service_role key
+    OPTIONAL: Only needed for syncRoomCounts.js background job.
+    If not set: job falls back to anon client (may fail if rooms RLS is strict).
+    NEVER commit this key to version control.
+
+  REDIS_URL=rediss://default:<password>@<host>.upstash.io:6379
+    From: Upstash console → Create Database → Redis → ioredis URL
+    Must start with "rediss://" for TLS (required by Upstash)
+    REQUIRED — server throws on startup if missing.
+
+  PORT=3001
+    Default if not set.
+
+  FRONTEND_URL=http://localhost:5173
+    Used for CORS (Express) and Socket.io CORS.
+    For production: use Vercel URL
+    Can be comma-separated for Express CORS (multi-origin):
+      "https://echochamber-gamma.vercel.app,http://localhost:5173"
+    NOTE: Socket.io CORS in socket/index.js only reads the raw string (not split).
+
+  GROQ_API_KEY=gsk_<your-groq-api-key>
+    From: console.groq.com → API Keys → Create API Key
+    OPTIONAL: If not set, reframing falls back to raw content.
+    App works as normal chat without this key.
+
+  NODE_ENV=production
+    Set by Render.com automatically (also in render.yaml)
+
+FRONTEND (frontend/.env):
+
+  VITE_API_URL=http://localhost:3001
+    Backend URL. In production: your Render deployment URL.
+    Used by: ProfileContext.jsx, Auth.jsx, Onboarding.jsx, useSocket.js,
+             RoomList.jsx for all API and Socket.io connections.
+
+  VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+    Same as backend SUPABASE_URL.
+
+  VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
+    Same as backend SUPABASE_ANON_KEY.
+    SAFE to expose in frontend (it's the anon/public key, not service_role).
+
+================================================================================
+20. LOCAL SETUP & RUNNING
+================================================================================
+
+Prerequisites:
+  - Node.js 18+
+  - npm
+  - A Supabase project (free at supabase.com)
+  - An Upstash Redis database (free at upstash.com)
+  - (Optional) A Groq API key (free at console.groq.com)
+
+Step 1: Clone and install
+  cd EchoChamber/backend && npm install
+  cd ../frontend && npm install
+
+Step 2: Supabase setup
+  1. Create a new Supabase project
+  2. Go to SQL Editor → New Query
+  3. Paste contents of backend/db/schema.sql → Run
+     (Creates profiles, rooms, messages tables + RLS policies + indexes)
+  4. Note your Project URL and anon key from Settings → API
+
+Step 3: Upstash Redis setup
+  1. Go to console.upstash.com → Create Database → Redis
+  2. Copy the ioredis connection URL (starts with rediss://)
+
+Step 4: Configure backend
+  cp backend/.env.example backend/.env
+  Fill in: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+           REDIS_URL, PORT=3001, FRONTEND_URL=http://localhost:5173, GROQ_API_KEY
+
+Step 5: Configure frontend
+  Create frontend/.env:
+    VITE_API_URL=http://localhost:3001
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_ANON_KEY=your-anon-key
+
+Step 6: Run
+  Terminal 1: cd backend && npm run dev    (uses nodemon, port 3001)
+  Terminal 2: cd frontend && npm run dev   (uses Vite, port 5173)
+
+  Open http://localhost:5173
+
+Step 7: First use
+  1. Sign up with email + password
+  2. Answer the 5-question personality quiz
+  3. You're in the chat! Create a room.
+  4. Test reframing with two browser windows / incognito tabs
+     (use different answer sets so different typeKeys)
+
+Step 8: Verify backend is running
+  curl http://localhost:3001/health
+  Should return: {"status":"ok","ts":"2026-06-26T..."}
+
+================================================================================
+21. DEPLOYMENT (Render + Vercel)
+================================================================================
+
+BACKEND → Render.com
+
+  render.yaml (already configured):
+    services:
+      - type: web
+        name: echochamber-api
+        runtime: node
+        rootDir: backend
+        buildCommand: npm install
+        startCommand: npm start
+        envVars:
+          - key: NODE_ENV
+            value: production
+          (+ SUPABASE_URL, SUPABASE_ANON_KEY, REDIS_URL, GROQ_API_KEY, FRONTEND_URL)
+          All marked sync: false (set manually in Render dashboard)
+
+  Manual steps:
+    1. Connect GitHub repo to Render
+    2. Create new Web Service pointing to backend/ directory
+    3. Set all environment variables from backend/.env:
+       SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+       REDIS_URL, GROQ_API_KEY, NODE_ENV=production
+    4. Set FRONTEND_URL to your Vercel deployment URL (after deploying frontend)
+    5. Note your Render service URL (e.g. https://echochamber-api.onrender.com)
+
+FRONTEND → Vercel
+
+  vercel.json:
+    { "rewrites": [{ "source": "/(.*)", "destination": "/" }] }
+    (Handles SPA routing — React Router catches all routes client-side)
+
+  Steps:
+    1. Import repo to Vercel
+    2. Set Root Directory to frontend/
+    3. Framework preset: Vite (auto-detected)
+    4. Set environment variables:
+       VITE_API_URL → your Render backend URL (e.g. https://echochamber-api.onrender.com)
+       VITE_SUPABASE_URL → same as backend
+       VITE_SUPABASE_ANON_KEY → same as backend
+    5. Deploy
+    6. Copy the Vercel URL → update FRONTEND_URL on Render → redeploy backend
+
+Post-deploy checklist:
+  - Update Supabase Auth → URL Configuration → Site URL to Vercel URL
+  - Enable/disable email confirmation in Supabase Auth settings
+  - Test WebSocket connection from Vercel deployment to Render
+  - Verify /health endpoint returns 200
+
+================================================================================
+22. INTERVIEW CHEAT SHEET
+================================================================================
+
+Question: What does this app do?
+Answer: "Same message, different experience per recipient. Groq reframes the
+        tone by personality type — at most 9 LLM calls per message regardless
+        of room size, because users are grouped by typeKey."
+
+Question: How did you handle the LLM scaling problem?
+Answer: "Grouped recipients by personality type — 9 combinations max — and cached
+        reframes in Redis. A 50-person room goes from 49 calls to 5 or fewer.
+        Cache misses are fired in parallel with Promise.all, so total latency is
+        one call's duration (~150ms) regardless of how many groups miss the cache."
+
+Question: Why Redis Pub/Sub?
+Answer: "Cross-instance message delivery. User A on Server 1 sends a message —
+        Redis Pub/Sub fans it out to Server 2 where User B is connected. Each
+        instance subscribes to 'room:*' and delivers to its own connected sockets."
+
+Question: What data structure for presence? Why?
+Answer: "Redis Set per room. SADD on join, SREM on leave, SMEMBERS for the full
+        list. Never KEYS — that scans the entire database O(total keys). SMEMBERS
+        is O(room members) which is exactly the set you need."
+
+Question: How do you avoid blocking message delivery?
+Answer: "setImmediate defers weather computation to after the emit. The message
+        reaches clients first — reframeAndDeliver completes — then on the very
+        next event loop tick, sentiment analysis begins. Users never wait for
+        weather updates."
+
+Question: How do you scale Redis commands under the free tier?
+Answer: "Pipeline. Four individual commands at 20ms each would add 80ms to every
+        message send. A pipeline collapses that to ~20ms regardless of how many
+        commands are in the batch. Reduces both latency and command count."
+
+Question: What happens if Groq is down?
+Answer: "Graceful fallback — raw message delivered unchanged. App degrades to
+        normal chat, nothing breaks. The reframeMessage function catches all
+        errors and returns rawContent. If GROQ_API_KEY is missing entirely,
+        it fast-paths and returns rawContent immediately — no API call attempted."
+
+Question: How would you scale beyond the free tier?
+Answer: "Redis cluster for throughput, Groq paid tier or self-hosted Ollama for
+        the LLM, Supabase Pro for database, multiple Render instances all
+        connected via the same Redis Pub/Sub. The instanceId pattern already
+        handles multi-instance without code changes."
+
+Question: Why token caching in Redis for auth?
+Answer: "supabase.getUser(token) is a network call (~50-100ms). 50 concurrent users
+        all making requests = 50 parallel round trips to Supabase's auth server.
+        Caching token→userId in Redis for 5 minutes means at most 1 Supabase
+        call per 5-minute window per token. The trade-off: forced logouts have a
+        5-minute staleness window — acceptable for chat, not for banking."
+
+Question: Why write-behind caching for room counts?
+Answer: "UPDATE rooms SET count+1 under concurrent inserts causes row-level lock
+        contention — two messages arriving simultaneously both try to
+        read-increment-write the same row, creating a lock queue. Redis INCR is
+        atomic (single-threaded event loop) — no locks, sub-millisecond. A
+        background job syncs to Postgres every 60 seconds."
+
+Question: What's the instanceId for?
+Answer: "roomHandler publishes to Redis AND calls reframeAndDeliver. The Pub/Sub
+        subscriber runs in the SAME process and receives the publish immediately.
+        Without instanceId, the subscriber would emit the raw message BEFORE
+        reframeAndDeliver finishes — the frontend deduplicates by ID, so the raw
+        version would always win. With instanceId, same-instance messages are
+        skipped by the subscriber. Cross-instance messages (horizontal scaling)
+        are routed through reframeAndDeliver on the receiving instance."
+
+Question: Why React.memo with custom comparator on MessageBubble?
+Answer: "Every new message triggers a re-render of the parent list, which without
+        memo triggers re-renders of all visible MessageBubble components. With a
+        custom comparator checking message id, content, and status, a bubble only
+        re-renders if its own content changed (which happens during streaming or
+        status updates). 100 messages visible = 99 prevented re-renders per message."
+
+Question: What is the 'unknown' typeKey fallback?
+Answer: "In reframeAndDeliver, if a socket somehow lacks a typeKey (e.g. profile
+        was missing at connection time), it's grouped under 'unknown'. The delivery
+        step uses `hits[typeKey] ?? message.rawContent` — so 'unknown' falls back
+        to raw content. Users still receive the message, just unframed."
+
+Question: Why does setMessages in useRoom expose setMessages in the return value?
+Answer: "It's exposed for potential optimistic UI — the MessageInput could
+        immediately push a 'sending...' state message before the server
+        confirms. The server response then overwrites or deduplicates it by id."
+
+Question: How does the Groq model key work in the code?
+Answer: "groq.js uses const MODEL = 'llama-3.1-8b-instant'. A comment notes that
+        llama3-8b-8192 was decommissioned — same capability, updated model ID.
+        The Groq SDK reads GROQ_API_KEY from process.env automatically."
+
+================================================================================
+23. BUILD ORDER & TIMELINE
+================================================================================
+
+Prompt 1 — Personality Onboarding + Auth + Redis Profile Storage (2-3 days)
+  - Supabase auth setup + helper functions (src/auth/supabase.js)
+  - Redis token cache middleware (Bottleneck #4 fix) (src/middleware/auth.js)
+  - POST /api/onboarding: personality quiz logic (src/routes/onboarding.js)
+  - GET /api/profile/:userId: cache-aside pattern (src/routes/profile.js)
+  - Supabase database schema (backend/db/schema.sql)
+  - Background job for write-behind sync (Bottleneck #5 fix) (src/jobs/syncRoomCounts.js)
+  - Frontend: Auth page, Onboarding page, ProfileContext
+  - Redis lib singleton (src/lib/redis.js)
+
+Prompt 2 — WebSocket Rooms + Redis Pub/Sub + Message History (3-4 days)
+  - Socket.io server setup with auth middleware (src/socket/index.js)
+  - Room event handlers: join, send, heartbeat, leave, disconnect (src/socket/roomHandler.js)
+  - Redis Set presence (Bottleneck #3 fix)
+  - Redis pipeline for message operations (Bottleneck #2 fix)
+  - Redis Pub/Sub for horizontal scaling (src/socket/pubsub.js)
+  - Instance ID stamp (src/lib/instanceId.js)
+  - REST: GET/POST /api/rooms, GET history (src/routes/rooms.js)
+  - Frontend: useSocket, useRoom, RoomList, MessageList, MessageInput
+
+Prompt 3 — Groq Reframing + Emotional Weather (3-4 days)
+  - Groq SDK integration (src/services/groq.js)
+  - Grouped reframing with Redis cache (Bottleneck #1 fix) (src/socket/reframeHandler.js)
+  - Promise.all for parallel Groq calls
+  - reframeCache.js utility (hashContent)
+  - instanceId check in pubsub.js (Bottleneck #11 fix)
+  - Sentiment service with AFINN-165 (src/services/sentiment.js)
+  - Weather state computation + Redis storage + pub/sub publish
+  - setImmediate for non-blocking weather (Bottleneck #6 fix)
+  - Frontend: useWeather.js + RoomWeather.jsx canvas animation
+
+Prompt 4 — Full React UI Polish + Performance (3-4 days)
+  - Canvas weather animation with lerp transitions (RoomWeather.jsx)
+  - Page Visibility API pause (Bottleneck #7 fix)
+  - Virtual message list (Bottleneck #9 fix) (MessageList.jsx)
+  - React.memo with custom comparator (Bottleneck #10 fix) (MessageBubble.jsx)
+  - useUnread with useRef (no unnecessary re-renders) (useUnread.js)
+  - MessageBubble with reframe badge + raw toggle
+  - Reconnect UX + toast notifications (useRoom.js reconnect effect)
+  - AvatarShape memoization (AvatarShape.jsx)
+  - OnlineAvatars component
+  - Full CSS design system (styles/tokens.css + component CSS files)
+  - Auth.css, Onboarding.css, Chat.css glassmorphism design
+  - index.html DM Sans + DM Mono fonts
+
+Total approximate build time: 2 weeks
+Total cost: $0.00 (all free tiers)
+
+================================================================================
+                          END OF DOCUMENTATION
+================================================================================
