@@ -105,7 +105,7 @@ Prompts used to build it: 4 (architectural phases)
 3. ENTERS A CHAT ROOM: Connects via WebSocket (Socket.io).
 
 4. SENDS A MESSAGE: The raw text is broadcast via Redis Pub/Sub to all server
-   instances. Then Groq's Llama 3.1 API reframes the message tone for EACH
+   instances. Then Groq's Qwen 3.8 API reframes the message tone for EACH
    unique personality type present in the room — in parallel, and cached.
 
 5. RECIPIENTS SEE THEIR VERSION: Each user sees the message reframed to match
@@ -135,15 +135,15 @@ WebSocket       | Socket.io server        | Real-time bidirectional events
 Cache + Pub/Sub | Redis via Upstash       | Profiles, auth cache, presence,
                 |                         | history, reframe cache, pub/sub
 Database + Auth | PostgreSQL via Supabase | Persistent storage + auth
-LLM (reframing) | Groq API (llama-3.1-8b-instant) | Personality tone reframing
+LLM (reframing) | Groq API (qwen/qwen3.8-27b) | Personality tone reframing
 Sentiment       | 'sentiment' npm package | Room emotional weather scoring
 Visuals         | Browser Canvas API      | Animated weather background
 Backend host    | Render.com              | Free Node.js hosting
 Frontend host   | Vercel                  | Free React hosting
 
-NOTE on Groq model: The code comment in groq.js notes that llama3-8b-8192 was
-decommissioned and replaced. The actual model in use is llama-3.1-8b-instant
-(const MODEL = 'llama-3.1-8b-instant' in src/services/groq.js).
+NOTE on Groq model: The model has been updated to qwen/qwen3.8-27b (Nov 2026)
+after llama-3.3-70b-versatile was decommissioned.
+(const MODEL = 'qwen/qwen3.8-27b' in src/services/groq.js).
 
 Dependencies — Backend (from backend/package.json):
   "dependencies": {
@@ -211,7 +211,7 @@ Dependencies — Frontend (from frontend/package.json):
     |    Tables: profiles, rooms, messages
     |    Auth: email/password JWT
     |
-    └── Groq API (llama-3.1-8b-instant)
+    └── Groq API (qwen/qwen3.8-27b)
          Personality-aware message reframing
 
 Multi-instance scaling:
@@ -919,9 +919,9 @@ Scaling math example:
 
 Purpose: Wraps Groq SDK for personality-aware message reframing.
 
-Model: llama-3.1-8b-instant
-  const MODEL = 'llama-3.1-8b-instant'
-  Note: llama3-8b-8192 was decommissioned. Same capability, new model ID.
+Model: qwen/qwen3.8-27b
+  const MODEL = 'qwen/qwen3.8-27b'
+  Note: llama-3.3-70b-versatile was decommissioned. Replaced with qwen3.8-27b (Nov 2026).
   Fast inference (~150ms on Groq's infrastructure)
   8192 context window (more than enough for a single chat message)
 
@@ -2425,8 +2425,8 @@ Answer: "It's exposed for potential optimistic UI — the MessageInput could
         confirms. The server response then overwrites or deduplicates it by id."
 
 Question: How does the Groq model key work in the code?
-Answer: "groq.js uses const MODEL = 'llama-3.1-8b-instant'. A comment notes that
-        llama3-8b-8192 was decommissioned — same capability, updated model ID.
+Answer: "groq.js uses const MODEL = 'qwen/qwen3.8-27b'. Previously used
+        llama-3.3-70b-versatile which was decommissioned (Nov 2026).
         The Groq SDK reads GROQ_API_KEY from process.env automatically."
 
 ================================================================================
