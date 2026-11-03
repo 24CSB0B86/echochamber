@@ -17,6 +17,7 @@ import { ProfileProvider, useProfile } from './context/ProfileContext';
 import Auth        from './pages/Auth';
 import Onboarding  from './pages/Onboarding';
 import Chat        from './pages/Chat';
+import ProfilePage from './pages/ProfilePage';
 
 // ── Route Guards ──────────────────────────────────────────────────────────────
 
@@ -47,6 +48,11 @@ function AppRoutes() {
       <Route path="/chat"        element={
         <RequireProfile>
           <Chat />
+        </RequireProfile>
+      } />
+      <Route path="/profile"     element={
+        <RequireProfile>
+          <ProfilePage />
         </RequireProfile>
       } />
       {/* Catch-all */}
