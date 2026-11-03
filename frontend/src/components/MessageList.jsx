@@ -1,38 +1,21 @@
 /**
  * src/components/MessageList.jsx
- * Virtualized message list — renders only visible messages.
+ * Stable, jitter-free chat stream.
  *
- * BOTTLENECK FIX — Virtual List
- * ──────────────────────────────
- * Rendering 5000 messages would create 5000 DOM nodes, each with avatars,
- * text, timestamps — causing severe layout and paint costs.
- * Virtualization keeps DOM nodes constant at ~30 regardless of history length.
- *
- * Implementation:
- *   - Track scrollTop + containerHeight via a scroll listener (no ResizeObserver
- *     overhead — container height is stable in a fixed layout)
- *   - Estimate which messages are in the visible window using ITEM_HEIGHT
- *   - Render spacer divs above and below to maintain correct scroll height
- *   - Buffer: render 10 items above and 20 below visible window to prevent
- *     blank flashes during fast scrolling
- *
- * Auto-scroll:
- *   Only auto-scrolls to bottom when the user was ALREADY at the bottom.
- *   If they're reading history, new messages don't hijack their scroll position.
+ * Fixes for scroll vibration / shaking:
+ *   - Removed naive fixed-height virtualization spacers that caused infinite
+ *     scrollHeight feedback loops at the bottom scroll boundary.
+ *   - Zero state updates on scroll (no re-renders during scrolling).
+ *   - Instant scrollTo on initial room open (no vibrating smooth-scroll fight).
+ *   - Smooth scrollTo only when a new message arrives and user is at the bottom.
+ *   - Native 120Hz smooth scrolling without CSS scroll-behavior fighting mouse wheel.
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import MessageBubble from './MessageBubble';
 import './MessageList.css';
 
-// Estimated average message height in px (used for virtual window calculation)
-// Actual heights vary but this estimate gives good-enough virtualization.
-const ITEM_HEIGHT   = 72;
-// Buffer above and below the visible window (items, not px)
-const BUFFER_ABOVE  = 10;
-const BUFFER_BELOW  = 20;
-
-// ── Loading skeleton ──────────────────────────────────────────────────────────
+// ── Loading Skeleton ────────────────────────────────────────────────────────
 function MessageSkeleton() {
   return (
     <div className="msg-skeleton-list" aria-label="Loading messages">
@@ -43,7 +26,7 @@ function MessageSkeleton() {
             <div className="msg-skeleton__name skeleton-pulse" />
             <div
               className="msg-skeleton__bubble skeleton-pulse"
-              style={{ width: `${30 + (i * 13) % 45}%` }}
+              style={{ width: `${32 + (i * 13) % 40}%` }}
             />
           </div>
         </div>
@@ -52,47 +35,73 @@ function MessageSkeleton() {
   );
 }
 
-export default function MessageList({ messages, isLoading, currentUserId, currentUserProfile }) {
-  const containerRef  = useRef(null);
-  const bottomRef     = useRef(null);
-  const [scrollTop, setScrollTop]       = useState(0);
-  const [containerH, setContainerH]    = useState(600);
-  const wasAtBottomRef = useRef(true);
+export default function MessageList({ messages = [], isLoading, currentUserId, currentUserProfile }) {
+  const containerRef    = useRef(null);
+  const wasAtBottomRef  = useRef(true);
+  const isInitialLoadRef= useRef(true);
+  const prevMsgCountRef = useRef(0);
 
-  // ── Track scroll position ────────────────────────────────────────────────
+  // ── Track scroll position without triggering re-renders ────────────────────
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    setScrollTop(el.scrollTop);
-    // Check if user is at (or near) the bottom — within 80px tolerance
-    wasAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // User is considered at bottom if within 60px of the bottom edge
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    wasAtBottomRef.current = distanceToBottom <= 60;
   }, []);
 
-  // Measure container height once on mount
-  useEffect(() => {
+  // ── Scroll to bottom logic ─────────────────────────────────────────────────
+  const scrollToBottom = useCallback((instant = false) => {
     const el = containerRef.current;
     if (!el) return;
-    setContainerH(el.clientHeight);
+
+    if (instant) {
+      el.scrollTop = el.scrollHeight;
+    } else {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, []);
 
-  // ── Auto-scroll to bottom on new messages ─────────────────────────────────
-  // Only auto-scrolls if the user was already at the bottom.
-  // This prevents hijacking the scroll when reading old history.
+  // ── Handle room entry and incoming messages ───────────────────────────────
   useEffect(() => {
-    if (wasAtBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isLoading) {
+      isInitialLoadRef.current = true;
+      return;
     }
-  }, [messages.length]);
 
-  // ── Virtualization math ───────────────────────────────────────────────────
-  const visibleCount = Math.ceil(containerH / ITEM_HEIGHT);
-  const startIndex   = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_ABOVE);
-  const endIndex     = Math.min(messages.length, startIndex + visibleCount + BUFFER_ABOVE + BUFFER_BELOW);
+    if (!messages.length) {
+      prevMsgCountRef.current = 0;
+      return;
+    }
 
-  const visibleMessages = messages.slice(startIndex, endIndex);
-  const spacerTop       = startIndex * ITEM_HEIGHT;
-  const spacerBottom    = Math.max(0, (messages.length - endIndex) * ITEM_HEIGHT);
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Initial load when opening room: instant scroll to bottom (zero vibration)
+    if (isInitialLoadRef.current) {
+      // Use requestAnimationFrame so DOM has laid out all bubble heights
+      requestAnimationFrame(() => {
+        scrollToBottom(true);
+        // Double check after any image/avatar paint
+        requestAnimationFrame(() => {
+          scrollToBottom(true);
+          isInitialLoadRef.current = false;
+        });
+      });
+    } else if (messages.length > prevMsgCountRef.current) {
+      // New message arrived: only smooth-scroll if user was already at the bottom
+      if (wasAtBottomRef.current) {
+        requestAnimationFrame(() => {
+          scrollToBottom(false);
+        });
+      }
+    }
+
+    prevMsgCountRef.current = messages.length;
+  }, [messages, isLoading, scrollToBottom]);
 
   if (isLoading) {
     return (
@@ -106,8 +115,9 @@ export default function MessageList({ messages, isLoading, currentUserId, curren
     return (
       <div className="message-list message-list--empty">
         <div className="message-list__empty-state">
-          <span className="message-list__empty-icon">💬</span>
-          <p>No messages yet. Say hello!</p>
+          <div className="message-list__empty-icon" aria-hidden="true">💬</div>
+          <p>No messages yet in this room.</p>
+          <span>Send the first message below.</span>
         </div>
       </div>
     );
@@ -119,30 +129,17 @@ export default function MessageList({ messages, isLoading, currentUserId, curren
       id="message-list"
       ref={containerRef}
       onScroll={handleScroll}
-      style={{ display: 'flex', flexDirection: 'column' }}
     >
-      {/* Spacer above visible window — maintains correct scroll height */}
-      {spacerTop > 0 && (
-        <div style={{ height: spacerTop, flexShrink: 0 }} aria-hidden="true" />
-      )}
-
-      {/* Only the ~30 visible messages are in the DOM */}
-      {visibleMessages.map(msg => (
-        <MessageBubble
-          key={msg.id}
-          message={msg}
-          isOwn={msg.senderId === currentUserId}
-          recipientProfile={currentUserProfile}
-        />
-      ))}
-
-      {/* Spacer below visible window */}
-      {spacerBottom > 0 && (
-        <div style={{ height: spacerBottom, flexShrink: 0 }} aria-hidden="true" />
-      )}
-
-      {/* Scroll target */}
-      <div ref={bottomRef} />
+      <div className="message-list__inner">
+        {messages.map(msg => (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isOwn={msg.senderId === currentUserId}
+            recipientProfile={currentUserProfile}
+          />
+        ))}
+      </div>
     </div>
   );
 }
