@@ -81,6 +81,20 @@ export function useRoom(roomId) {
       setOnlineUsers(prev => prev.filter(u => u.userId !== userId));
     });
 
+    // ── user_profile_updated: live avatar/color/lens update ───────────────────
+    socket.on('user_profile_updated', ({ userId, profile }) => {
+      setOnlineUsers(prev =>
+        prev.map(u => (u.userId === userId ? { ...u, ...profile } : u))
+      );
+    });
+
+    // ── profile_synced: re-query room history with new personality lens ───────
+    socket.on('profile_synced', () => {
+      if (roomId) {
+        socket.emit('join_room', { roomId });
+      }
+    });
+
     // ── rate_limited: server rejected message ─────────────────────────────────
     socket.on('rate_limited', ({ message }) => {
       showToast(message || 'Slow down — max 30 messages per minute');
@@ -97,6 +111,8 @@ export function useRoom(roomId) {
       socket.off('online_users');
       socket.off('user_joined');
       socket.off('user_left');
+      socket.off('user_profile_updated');
+      socket.off('profile_synced');
       socket.off('rate_limited');
 
       // Reset room state when leaving

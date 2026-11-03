@@ -46,11 +46,38 @@ export function ProfileProvider({ children }) {
         const userId = session.user.id;
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-        const res = await fetch(`${apiUrl}/api/profile/${userId}`);
+        let fetched = false;
+        try {
+          const res = await fetch(`${apiUrl}/api/profile/${userId}`);
+          if (res.ok) {
+            const { profile: fetchedProfile } = await res.json();
+            if (fetchedProfile && fetchedProfile.userId) {
+              setProfile(fetchedProfile);
+              fetched = true;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('[ProfileContext] Backend fetch failed, trying Supabase fallback:', fetchErr.message);
+        }
 
-        if (res.ok) {
-          const { profile: fetchedProfile } = await res.json();
-          setProfile(fetchedProfile);
+        // Direct Supabase fallback if backend fetch did not return a valid profile
+        if (!fetched) {
+          const { data: dbData } = await supabase
+            .from('profiles')
+            .select('user_id, color, avatar, personality_json, display_name')
+            .eq('user_id', userId)
+            .single();
+
+          if (dbData) {
+            const fallbackProfile = {
+              userId:      dbData.user_id,
+              displayName: dbData.display_name,
+              color:       dbData.color,
+              avatar:      dbData.avatar,
+              ...dbData.personality_json,
+            };
+            setProfile(fallbackProfile);
+          }
         }
         // 404 means no profile yet → user needs to go through onboarding.
         // We don't throw here — App.jsx handles the redirect logic.

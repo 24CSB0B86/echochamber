@@ -65,7 +65,7 @@ const QUESTIONS = [
 
 export default function Onboarding() {
   const navigate            = useNavigate();
-  const { setProfile }      = useProfile();
+  const { profile, setProfile } = useProfile();
 
   const [currentIndex,  setCurrentIndex]  = useState(0);  // which question we're on (0-4)
   const [answers,       setAnswers]       = useState([]);  // accumulated answers (1-indexed)
@@ -132,7 +132,12 @@ export default function Onboarding() {
           // Include the Bearer token — auth middleware caches this in Redis
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ answers: allAnswers, displayName }),
+        body: JSON.stringify({
+          answers: allAnswers,
+          displayName: displayName || profile?.displayName,
+          color: profile?.color,
+          avatar: profile?.avatar,
+        }),
       });
 
       if (!res.ok) {

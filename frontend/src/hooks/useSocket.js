@@ -48,6 +48,11 @@ export function useSocket(roomId) {
       socket.on('disconnect', (reason) => {
         console.log('[useSocket] Disconnected:', reason);
         setConnected(false);
+        // If server intentionally disconnected the socket, explicitly reconnect
+        if (reason === 'io server disconnect') {
+          console.log('[useSocket] Server disconnected socket — reconnecting explicitly...');
+          socket.connect();
+        }
       });
 
       socket.on('connect_error', (err) => {

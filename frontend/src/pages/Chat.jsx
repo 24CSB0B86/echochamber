@@ -205,6 +205,7 @@ export default function Chat() {
         onClose={() => setProfileModalOpen(false)}
         socket={socket}
         onShowToast={showToast}
+        roomId={activeRoomId}
       />
 
       {/* ── Toast Notifications ───────────────────────────────────────── */}

@@ -107,7 +107,7 @@ const DIMENSIONS = [
   },
 ];
 
-export default function UserProfileModal({ isOpen, onClose, socket, onShowToast }) {
+export default function UserProfileModal({ isOpen, onClose, socket, onShowToast, roomId }) {
   const { profile, setProfile } = useProfile();
   const { theme, setTheme }     = useTheme();
   const navigate = useNavigate();
@@ -207,18 +207,10 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
         console.warn('[UserProfileModal] PUT /api/profile attempt failed:', e.message);
       }
 
-      // ── Method 2: If PUT was 404/failed, fall back to POST /api/onboarding ──
+      // ── Method 2: Try POST /api/profile ─────────────────────────────
       if (!updatedProfile) {
         try {
-          const answers = [
-            TRAIT_TO_ANSWERS.setting[traits.setting]   || 1,
-            TRAIT_TO_ANSWERS.time[traits.time]         || 1,
-            TRAIT_TO_ANSWERS.response[traits.response] || 1,
-            TRAIT_TO_ANSWERS.social[traits.social]     || 2,
-            TRAIT_TO_ANSWERS.medium[traits.medium]     || 1,
-          ];
-
-          const res = await fetch(`${apiUrl}/api/onboarding`, {
+          const res = await fetch(`${apiUrl}/api/profile`, {
             method: 'POST',
             headers: {
               'Content-Type':  'application/json',
@@ -226,9 +218,9 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
             },
             body: JSON.stringify({
               displayName: displayName.trim(),
-              answers,
               color,
               avatar,
+              ...traits,
             }),
           });
 
@@ -237,11 +229,11 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
             if (data?.profile) updatedProfile = data.profile;
           }
         } catch (e) {
-          console.warn('[UserProfileModal] POST /api/onboarding attempt failed:', e.message);
+          console.warn('[UserProfileModal] POST /api/profile attempt failed:', e.message);
         }
       }
 
-      // ── Method 3: Direct Supabase client upsert (absolute failsafe) ──
+      // ── Method 3: Direct Supabase client upsert (failsafe fallback) ──
       if (!updatedProfile) {
         const userId = session.user.id;
         const typeKey = `${traits.response}:${traits.medium}`;
@@ -278,9 +270,12 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
       setProfile(updatedProfile);
       setSaveSuccess(true);
 
-      // Trigger socket reconnect to update server socket.profile & socket.typeKey
+      // Seamlessly sync socket in-place without dropping the connection
       if (socket) {
-        socket.emit('profile_updated');
+        socket.emit('profile_updated', { profile: updatedProfile });
+        if (roomId) {
+          socket.emit('join_room', { roomId });
+        }
       }
 
       if (onShowToast) {

@@ -96,10 +96,47 @@ export function initSocket(httpServer) {
     // Register all room-related event handlers
     registerRoomHandlers(io, socket);
 
-    // Allow frontend to trigger a reconnect after retaking onboarding
-    socket.on('profile_updated', () => {
-      console.log(`[socket] Profile updated for ${socket.userId} — disconnecting to refresh`);
-      socket.disconnect(true);
+    // Handle real-time profile & personality updates without tearing down the connection
+    socket.on('profile_updated', async (payload) => {
+      try {
+        console.log(`[socket] Profile updated for ${socket.userId} — syncing in-place`);
+        const redisKey = `profile:${socket.userId}`;
+
+        let fresh = null;
+        if (payload?.profile && payload.profile.userId === socket.userId) {
+          fresh = payload.profile;
+        } else {
+          fresh = await redis.hgetall(redisKey);
+        }
+
+        if (fresh && (fresh.userId || fresh.displayName)) {
+          socket.profile = {
+            ...socket.profile,
+            ...fresh,
+            userId: socket.userId,
+            typeKey: fresh.typeKey || `${fresh.response || 'analytical'}:${fresh.medium || 'verbal'}`,
+          };
+          socket.typeKey = socket.profile.typeKey;
+          // Synchronize Redis hash to ensure permanence
+          await redis.hset(redisKey, socket.profile);
+        }
+
+        // Confirm to client that socket profile and typeKey are refreshed
+        socket.emit('profile_synced', { profile: socket.profile });
+
+        // Broadcast presence update to all active rooms this user is in
+        for (const room of socket.rooms) {
+          if (room !== socket.id) {
+            io.to(room).emit('user_profile_updated', {
+              roomId: room,
+              userId: socket.userId,
+              profile: socket.profile,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[socket] profile_updated error:', err.message);
+      }
     });
 
     socket.on('disconnect', (reason) => {

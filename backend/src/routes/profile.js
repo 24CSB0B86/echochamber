@@ -15,7 +15,7 @@
 
 import { Router } from 'express';
 import redis from '../lib/redis.js';
-import supabase, { createUserClient } from '../auth/supabase.js';
+import supabase, { createUserClient, supabaseAdmin } from '../auth/supabase.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -143,26 +143,30 @@ async function handleUpdateProfile(req, res) {
     await redis.hset(redisKey, updatedProfile);
 
     // 2. Update Supabase (durable persistence)
-    const userClient = createUserClient(req.token);
-    const { error: dbError } = await userClient
-      .from('profiles')
-      .upsert({
-        user_id:          userId,
-        color:            updatedColor,
-        avatar:           updatedAvatar,
-        display_name:     updatedName,
-        personality_json: {
-          setting:  updatedSetting,
-          time:     updatedTime,
-          response: updatedResponse,
-          social:   updatedSocial,
-          medium:   updatedMedium,
-          typeKey:  updatedTypeKey,
-        },
-      }, { onConflict: 'user_id' });
+    try {
+      const dbClient = supabaseAdmin || createUserClient(req.token);
+      const { error: dbError } = await dbClient
+        .from('profiles')
+        .upsert({
+          user_id:          userId,
+          color:            updatedColor,
+          avatar:           updatedAvatar,
+          display_name:     updatedName,
+          personality_json: {
+            setting:  updatedSetting,
+            time:     updatedTime,
+            response: updatedResponse,
+            social:   updatedSocial,
+            medium:   updatedMedium,
+            typeKey:  updatedTypeKey,
+          },
+        }, { onConflict: 'user_id' });
 
-    if (dbError) {
-      console.warn('[profile] Supabase update warning:', dbError.message);
+      if (dbError) {
+        console.warn('[profile] Supabase update warning:', dbError.message);
+      }
+    } catch (e) {
+      console.warn('[profile] Supabase error:', e.message);
     }
 
     return res.json({ profile: updatedProfile });
