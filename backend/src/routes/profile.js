@@ -174,5 +174,10 @@ async function handleUpdateProfile(req, res) {
 
 router.put('/', authMiddleware, handleUpdateProfile);
 router.patch('/', authMiddleware, handleUpdateProfile);
+router.post('/', authMiddleware, handleUpdateProfile);
+router.post('/update', authMiddleware, handleUpdateProfile);
+router.put('/:userId', authMiddleware, handleUpdateProfile);
+router.patch('/:userId', authMiddleware, handleUpdateProfile);
+router.post('/:userId', authMiddleware, handleUpdateProfile);
 
 export default router;

@@ -68,7 +68,7 @@ const AVATAR_SHAPES = ['circle', 'triangle', 'square', 'hexagon', 'star'];
 // POST /api/onboarding
 // ─────────────────────────────────────────────
 router.post('/', authMiddleware, async (req, res) => {
-  const { answers, displayName } = req.body;
+  const { answers, displayName, color: customColor, avatar: customAvatar } = req.body;
 
   // ── Validation ────────────────────────────────────────────────────────────
   if (!Array.isArray(answers) || answers.length !== 5) {
@@ -94,23 +94,14 @@ router.post('/', authMiddleware, async (req, res) => {
     const social   = SOCIAL_MAP[answers[3]];
     const medium   = MEDIUM_MAP[answers[4]];
 
-    // typeKey is used later as the grouping key for Groq reframe calls.
-    // Instead of calling Groq once per recipient (O(room size)), we call it once per
-    // unique typeKey (O(personality types) — at most 9 combinations of response×medium).
-    // See src/socket/reframeHandler.js for how this is used in Prompt 2/3.
-    const typeKey = `${response}:${medium}`; // e.g. "analytical:verbal"
+    const typeKey = `${response}:${medium}`;
 
-    // ── Deterministic color from answer sum ───────────────────────────────────
-    // Same answers always produce the same color. Sum ranges from 5 (all 1s) to
-    // 15 (all 3s) → % 12 maps to indices 0-11.
+    // Color: custom if provided, otherwise deterministic from answer sum
     const answerSum = answers.reduce((acc, a) => acc + a, 0);
-    const color     = COLOR_PALETTE[answerSum % 12];
+    const color     = customColor || COLOR_PALETTE[answerSum % 12];
 
-    // ── Avatar shape from Q3 answer ───────────────────────────────────────────
-    // answer[2] is 1, 2, or 3 → (answer[2] - 1) % 5 gives index 0-2.
-    // Storing Q3's answer here because "how you respond to stress" feels most
-    // visually expressive — avoidant users get the evasive triangle, etc.
-    const avatar = AVATAR_SHAPES[(answers[2] - 1) % 5];
+    // Avatar: custom if provided, otherwise from Q3 answer modulo 5
+    const avatar    = customAvatar || AVATAR_SHAPES[(answers[2] - 1) % 5];
 
     const name = displayName?.trim() || `User${userId.slice(0, 6)}`;
 
