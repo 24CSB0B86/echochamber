@@ -71,14 +71,20 @@ async function main() {
     console.log(`✅  Deleted ${count ?? 'all'} message(s) from Supabase.\n`);
   }
 
-  // ── Step 2: Delete all msgcount:* keys from Redis ────────────────────────
-  console.log('Step 2/3  Resetting Redis message counts (msgcount:*)...');
+  // ── Step 2: Delete all history:* and msgcount:* keys from Redis ─────────
+  console.log('Step 2/3  Clearing Redis message history and counts...');
+
+  // history:{roomId} — the list of last 50 messages served on join_room
+  const historyKeys  = await redis.keys('history:*');
+  // msgcount:{roomId} — the live message counter shown in room list
   const msgCountKeys = await redis.keys('msgcount:*');
-  if (msgCountKeys.length === 0) {
-    console.log('   (no msgcount keys found — already clean)\n');
+
+  const allKeys = [...historyKeys, ...msgCountKeys];
+  if (allKeys.length === 0) {
+    console.log('   (no history or msgcount keys found — already clean)\n');
   } else {
-    await redis.del(...msgCountKeys);
-    console.log(`✅  Deleted ${msgCountKeys.length} msgcount key(s) from Redis.\n`);
+    await redis.del(...allKeys);
+    console.log(`✅  Deleted ${historyKeys.length} history key(s) + ${msgCountKeys.length} msgcount key(s) from Redis.\n`);
   }
 
   // ── Step 3: Reset synced_count = 0 on all rooms in Supabase ─────────────
