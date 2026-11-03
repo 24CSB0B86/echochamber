@@ -162,6 +162,14 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
     setTraits(prev => ({ ...prev, [key]: value }));
   }
 
+  const TRAIT_TO_ANSWERS = {
+    setting:  { nature: 1, ocean: 2, urban: 3 },
+    time:     { night: 1, day: 2, evening: 3 },
+    response: { analytical: 1, emotional: 2, avoidant: 3 },
+    social:   { introvert: 1, ambivert: 2, extrovert: 3 },
+    medium:   { verbal: 1, visual: 2, auditory: 3 },
+  };
+
   async function handleSave() {
     setIsSaving(true);
     setSaveSuccess(false);
@@ -173,26 +181,98 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
       }
 
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const res = await fetch(`${apiUrl}/api/profile`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          displayName: displayName.trim(),
+      let updatedProfile = null;
+
+      // ── Method 1: Try PUT /api/profile ─────────────────────────────
+      try {
+        const res = await fetch(`${apiUrl}/api/profile`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            displayName: displayName.trim(),
+            color,
+            avatar,
+            ...traits,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.profile) updatedProfile = data.profile;
+        }
+      } catch (e) {
+        console.warn('[UserProfileModal] PUT /api/profile attempt failed:', e.message);
+      }
+
+      // ── Method 2: If PUT was 404/failed, fall back to POST /api/onboarding ──
+      if (!updatedProfile) {
+        try {
+          const answers = [
+            TRAIT_TO_ANSWERS.setting[traits.setting]   || 1,
+            TRAIT_TO_ANSWERS.time[traits.time]         || 1,
+            TRAIT_TO_ANSWERS.response[traits.response] || 1,
+            TRAIT_TO_ANSWERS.social[traits.social]     || 2,
+            TRAIT_TO_ANSWERS.medium[traits.medium]     || 1,
+          ];
+
+          const res = await fetch(`${apiUrl}/api/onboarding`, {
+            method: 'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              displayName: displayName.trim(),
+              answers,
+              color,
+              avatar,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.profile) updatedProfile = data.profile;
+          }
+        } catch (e) {
+          console.warn('[UserProfileModal] POST /api/onboarding attempt failed:', e.message);
+        }
+      }
+
+      // ── Method 3: Direct Supabase client upsert (absolute failsafe) ──
+      if (!updatedProfile) {
+        const userId = session.user.id;
+        const typeKey = `${traits.response}:${traits.medium}`;
+        const name = displayName.trim() || `User${userId.slice(0, 6)}`;
+
+        const { error: dbError } = await supabase
+          .from('profiles')
+          .upsert({
+            user_id:          userId,
+            color,
+            avatar,
+            display_name:     name,
+            personality_json: {
+              ...traits,
+              typeKey,
+            },
+          }, { onConflict: 'user_id' });
+
+        if (dbError) {
+          throw new Error(dbError.message || 'Failed to update profile');
+        }
+
+        updatedProfile = {
+          userId,
+          displayName: name,
           color,
           avatar,
           ...traits,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to update profile');
+          typeKey,
+        };
       }
-
-      const { profile: updatedProfile } = await res.json();
 
       // Update ProfileContext
       setProfile(updatedProfile);
