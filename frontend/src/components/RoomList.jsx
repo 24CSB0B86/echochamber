@@ -11,7 +11,7 @@ import './RoomList.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount }) {
+export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount, onOpenProfile }) {
   const { profile } = useProfile();
   const [rooms,       setRooms]       = useState([]);
   const [isLoading,   setIsLoading]   = useState(true);
@@ -127,10 +127,10 @@ export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount })
                 key={room.id}
                 id={`room-${room.id}`}
                 className={`room-list__item ${isActive ? 'room-list__item--active' : ''}`}
-                onClick={() => onSelectRoom(room.id)}
+                onClick={() => onSelectRoom(room.id, room.name)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && onSelectRoom(room.id)}
+                onKeyDown={e => e.key === 'Enter' && onSelectRoom(room.id, room.name)}
               >
                 <div className="room-list__item-left">
                   <span className="room-list__hash">#</span>
@@ -152,28 +152,42 @@ export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount })
 
       {/* ── User row (bottom) ─────────────────────────────────────────── */}
       {profile && (
-        <div className="room-list__user">
+        <div className="room-list__user" onClick={onOpenProfile} title="Customize Profile & Personality">
           <div
             className="room-list__user-avatar"
-            style={{ '--profile-color': profile.color }}
+            style={{ '--profile-color': profile.color || 'var(--accent-primary)' }}
           >
-            <AvatarShape shape={profile.avatar} color={profile.color} size={18} />
+            <AvatarShape shape={profile.avatar || 'circle'} color={profile.color || '#6366f1'} size={18} />
             <span className="room-list__user-online" aria-hidden="true" />
           </div>
           <div className="room-list__user-info">
             <span
               className="room-list__user-name"
-              style={{ '--profile-color': profile.color }}
+              style={{ '--profile-color': profile.color || 'var(--text-primary)' }}
             >
-              {profile.displayName}
+              {profile.displayName || 'You'}
             </span>
             {personalityType && (
               <span className="room-list__user-type">{personalityType}</span>
             )}
           </div>
           <button
+            className="room-list__settings-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenProfile) onOpenProfile();
+            }}
+            title="Edit profile & personality"
+            aria-label="Edit profile & personality"
+          >
+            ⚙
+          </button>
+          <button
             className="room-list__signout"
-            onClick={handleSignOut}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSignOut();
+            }}
             title="Sign out"
             aria-label="Sign out"
           >

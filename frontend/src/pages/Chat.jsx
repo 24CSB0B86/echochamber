@@ -1,40 +1,45 @@
 /**
- * src/pages/Chat.jsx — Premium glassmorphism chat layout
+ * src/pages/Chat.jsx — Minimalist, High-Precision Chat Workspace
  */
 
 import { useState, useCallback } from 'react';
-import { useProfile }   from '../context/ProfileContext';
-import { useRoom }      from '../hooks/useRoom';
-import { useWeather }   from '../hooks/useWeather';
-import { useUnread }    from '../hooks/useUnread';
-import RoomList         from '../components/RoomList';
-import RoomWeather      from '../components/RoomWeather';
-import MessageList      from '../components/MessageList';
-import MessageInput     from '../components/MessageInput';
-import OnlineAvatars    from '../components/OnlineAvatars';
+import { useProfile }       from '../context/ProfileContext';
+import { useRoom }          from '../hooks/useRoom';
+import { useWeather }       from '../hooks/useWeather';
+import { useUnread }        from '../hooks/useUnread';
+import RoomList             from '../components/RoomList';
+import RoomWeather          from '../components/RoomWeather';
+import MessageList          from '../components/MessageList';
+import MessageInput         from '../components/MessageInput';
+import OnlineAvatars        from '../components/OnlineAvatars';
+import UserProfileModal     from '../components/UserProfileModal';
+import AvatarShape          from '../components/AvatarShape';
 import './Chat.css';
 
 const WEATHER_META = {
-  calm:   { emoji: '🌤', label: 'Calm'   },
-  warm:   { emoji: '☀️',  label: 'Warm'  },
-  heated: { emoji: '🔥', label: 'Heated' },
-  tense:  { emoji: '🌩', label: 'Tense'  },
-  stormy: { emoji: '⛈', label: 'Stormy' },
+  calm:   { emoji: '🌤', label: 'Calm',   color: '#14b8a6' },
+  warm:   { emoji: '☀️',  label: 'Warm',   color: '#f59e0b' },
+  heated: { emoji: '🔥', label: 'Heated', color: '#ff783c' },
+  tense:  { emoji: '🌩', label: 'Tense',  color: '#818cf8' },
+  stormy: { emoji: '⛈', label: 'Stormy', color: '#f43f5e' },
 };
 
 export default function Chat() {
-  const { profile }             = useProfile();
-  const [activeRoomId, setActiveRoomId] = useState(null);
-  const [sidebarOpen, setSidebarOpen]   = useState(false);
+  const { profile } = useProfile();
+  const [activeRoom, setActiveRoom] = useState({ id: null, name: '' });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  const { socket, messages, onlineUsers, isLoading, connected, toast, sendMessage }
+  const activeRoomId = activeRoom.id;
+
+  const { socket, messages, onlineUsers, isLoading, connected, toast, sendMessage, showToast }
     = useRoom(activeRoomId);
 
   const weather = useWeather(socket, activeRoomId);
-  const { increment, clear, getCount } = useUnread(activeRoomId);
+  const { clear, getCount } = useUnread(activeRoomId);
 
-  const handleSelectRoom = useCallback((roomId) => {
-    setActiveRoomId(roomId);
+  const handleSelectRoom = useCallback((roomId, roomName) => {
+    setActiveRoom({ id: roomId, name: roomName || 'room' });
     clear(roomId);
     setSidebarOpen(false);
   }, [clear]);
@@ -53,6 +58,7 @@ export default function Chat() {
           activeRoomId={activeRoomId}
           onSelectRoom={handleSelectRoom}
           getUnreadCount={getCount}
+          onOpenProfile={() => setProfileModalOpen(true)}
         />
       </aside>
 
@@ -75,43 +81,74 @@ export default function Chat() {
           <div className="chat-header__room">
             <span className="chat-header__hash">#</span>
             <span className="chat-header__room-name" id="active-room-name">
-              {/* Room name comes from RoomList — use roomId short form here */}
-              room
+              {activeRoom.name || 'room'}
             </span>
           </div>
         ) : (
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Select a room
-          </span>
+          <span className="chat-header__no-room">Select a room</span>
         )}
 
-        {/* Live weather pill */}
+        {/* Live weather indicator */}
         {activeRoomId && weather && (
-          <div className={`chat-header__weather chat-header__weather--${weatherState}`}
+          <div
+            className={`chat-header__weather chat-header__weather--${weatherState}`}
             title={`Room vibe: ${weatherMeta.label}`}
           >
             <span className="chat-header__weather-dot" aria-hidden="true" />
-            {weatherMeta.emoji} {weatherMeta.label}
+            <span className="chat-header__weather-label">{weatherMeta.label}</span>
           </div>
         )}
 
         <div className="chat-header__spacer" />
 
-        {/* Online avatars */}
-        {activeRoomId && <OnlineAvatars users={onlineUsers} />}
+        {/* ── Right-Side Actions: Online Avatars + Profile Button ── */}
+        <div className="chat-header__actions">
+          {activeRoomId && (
+            <div className="chat-header__online-wrap">
+              <OnlineAvatars users={onlineUsers} />
+            </div>
+          )}
+
+          <div className="chat-header__divider" aria-hidden="true" />
+
+          {/* User Profile Button */}
+          <button
+            className="chat-header__profile-btn"
+            onClick={() => setProfileModalOpen(true)}
+            aria-label="Open profile and personality settings"
+            title="Profile & Personality Settings"
+          >
+            <div
+              className="chat-header__profile-avatar"
+              style={{ '--profile-color': profile.color || 'var(--accent-primary)' }}
+            >
+              <AvatarShape shape={profile.avatar || 'circle'} color={profile.color || '#6366f1'} size={15} />
+            </div>
+            <div className="chat-header__profile-info">
+              <span className="chat-header__profile-name">{profile.displayName || 'You'}</span>
+              <span className="chat-header__profile-tag">
+                {profile.response || 'neutral'} · {profile.medium || 'verbal'}
+              </span>
+            </div>
+          </button>
+        </div>
       </header>
 
-      {/* ── Main ────────────────────────────────────────────────────── */}
+      {/* ── Main Area ────────────────────────────────────────────────── */}
       <main className="chat-main">
         {!activeRoomId ? (
           <div className="chat-main__placeholder">
-            <span className="chat-main__placeholder-icon" aria-hidden="true">⬡</span>
-            <h2>Pick a room to start</h2>
-            <p>Messages adapt to your personality type.</p>
+            <div className="chat-main__placeholder-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <h2>Select a conversation</h2>
+            <p>Every message automatically adapts tone and style to your unique personality lens.</p>
           </div>
         ) : (
           <div className="chat-main__room">
-            {/* Canvas ambient weather bg */}
+            {/* Ambient weather canvas */}
             <RoomWeather weatherState={weatherState} />
 
             <div className="chat-main__messages">
@@ -134,7 +171,15 @@ export default function Chat() {
         )}
       </main>
 
-      {/* ── Toast ───────────────────────────────────────────────────── */}
+      {/* ── User Profile & Personality Customization Modal ────────────── */}
+      <UserProfileModal
+        isOpen={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        socket={socket}
+        onShowToast={showToast}
+      />
+
+      {/* ── Toast Notifications ───────────────────────────────────────── */}
       {toast && (
         <div
           className={`chat-toast chat-toast--${toast.type}`}

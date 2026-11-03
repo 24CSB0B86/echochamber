@@ -165,5 +165,6 @@ export function useRoom(roomId) {
     connected,
     toast,
     sendMessage,
+    showToast,
   };
 }
