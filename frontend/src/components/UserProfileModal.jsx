@@ -27,6 +27,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useProfile } from '../context/ProfileContext';
+import { useTheme } from '../context/ThemeContext';
 import AvatarShape from './AvatarShape';
 import './UserProfileModal.css';
 
@@ -108,6 +109,7 @@ const DIMENSIONS = [
 
 export default function UserProfileModal({ isOpen, onClose, socket, onShowToast }) {
   const { profile, setProfile } = useProfile();
+  const { theme, setTheme }     = useTheme();
   const navigate = useNavigate();
 
   // Local draft state
@@ -365,6 +367,38 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
                 </div>
               </div>
 
+              {/* Interface theme mode */}
+              <div className="profile-field-group">
+                <label className="profile-field-label">Interface Theme</label>
+                <div className="profile-theme-grid">
+                  <button
+                    type="button"
+                    className={`profile-theme-pill ${theme === 'dark' ? 'profile-theme-pill--selected' : ''}`}
+                    onClick={() => setTheme('dark')}
+                  >
+                    <span className="profile-theme-icon">🌙</span>
+                    <div className="profile-theme-text">
+                      <span className="profile-theme-title">Dark Theme</span>
+                      <span className="profile-theme-desc">Obsidian & warm deep slate</span>
+                    </div>
+                    {theme === 'dark' && <span className="profile-theme-check">✓</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`profile-theme-pill ${theme === 'light' ? 'profile-theme-pill--selected' : ''}`}
+                    onClick={() => setTheme('light')}
+                  >
+                    <span className="profile-theme-icon">☀️</span>
+                    <div className="profile-theme-text">
+                      <span className="profile-theme-title">Light Theme</span>
+                      <span className="profile-theme-desc">Ice-blue, white & royal periwinkle</span>
+                    </div>
+                    {theme === 'light' && <span className="profile-theme-check">✓</span>}
+                  </button>
+                </div>
+              </div>
+
               {/* Avatar shape selector */}
               <div className="profile-field-group">
                 <label className="profile-field-label">Avatar Geometric Shape</label>
@@ -449,3 +483,4 @@ export default function UserProfileModal({ isOpen, onClose, socket, onShowToast 
     </div>
   );
 }
+

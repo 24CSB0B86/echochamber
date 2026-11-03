@@ -1,5 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    MessageInput — Minimalist Floating Input Bar
+   Supports both Dark Obsidian Theme & Screenshot Light Theme
    ───────────────────────────────────────────────────────────────────────────── */
 @import '../styles/tokens.css';
 
@@ -11,7 +12,7 @@
 .msg-input__rate-notice {
   font-size: 11px;
   font-weight: 500;
-  color: #f59e0b;
+  color: var(--accent-amber);
   padding: 2px 8px 6px;
 }
 
@@ -19,17 +20,16 @@
 .msg-input__wrapper {
   display: flex;
   align-items: flex-end;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 18px;
   overflow: hidden;
   transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
 }
 
 .msg-input__wrapper:focus-within {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(99, 102, 241, 0.55);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12), 0 4px 16px -2px rgba(0, 0, 0, 0.4);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-dim), var(--shadow-sm);
 }
 
 /* Auto-expanding Textarea */
@@ -39,17 +39,17 @@
   border: none;
   outline: none;
   resize: none;
-  padding: 11px 14px 9px;
+  padding: 11px 16px 9px;
   font-size: 13.5px;
   line-height: 1.5;
-  color: var(--text-primary);
+  color: var(--input-text);
   font-family: var(--font-ui);
   max-height: 120px;
   overflow-y: auto;
 }
 
 .msg-input__textarea::placeholder {
-  color: #5e6678;
+  color: var(--input-placeholder);
 }
 
 .msg-input__textarea:disabled {
@@ -81,19 +81,19 @@
 }
 
 .msg-input__counter--warn {
-  color: #f59e0b;
+  color: var(--accent-amber);
 }
 
 .msg-input__counter--red {
-  color: #f43f5e;
+  color: var(--accent-rose);
 }
 
 /* Send Button */
 .msg-input__send-btn {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border-radius: 50%;
+  background: var(--accent-primary);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
   display: flex;
@@ -101,12 +101,11 @@
   justify-content: center;
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 8px rgba(78, 108, 240, 0.3);
 }
 
 .msg-input__send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4f46e5, #4338ca);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.5);
+  background: var(--accent-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -115,9 +114,9 @@
 }
 
 .msg-input__send-btn:disabled {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.06);
-  color: #555d70;
+  background: var(--border-subtle);
+  border-color: transparent;
+  color: var(--text-muted);
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -138,11 +137,11 @@
 }
 
 .msg-input__lens-tag {
-  color: #a5b4fc;
+  color: var(--accent-primary);
   font-weight: 600;
   text-transform: capitalize;
-  background: rgba(99, 102, 241, 0.10);
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: var(--accent-primary-dim);
+  border: 1px solid var(--border-accent);
   padding: 1px 7px;
   border-radius: 999px;
   font-size: 10px;

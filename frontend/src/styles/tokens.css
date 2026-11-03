@@ -1,29 +1,32 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    src/styles/tokens.css
-   EchoChamber Design Tokens — Minimalist, High-End Design System
-   Curated for deep focus, subtle depth, and zero AI-slop aesthetics.
+   EchoChamber Design Tokens — Theme Engine
+   Dark Theme: Current Warm Obsidian & Deep Slate
+   Light Theme: Exact Screenshot Palette (Soft Ice-Lavender, Crisp White, Royal Periwinkle)
    ───────────────────────────────────────────────────────────────────────────── */
 
-:root {
-  /* ── Core Canvas & Backgrounds (Warm Obsidian & Deep Slate) ──────────────── */
-  --bg-base:           #0a0b10;
-  --bg-sidebar:        #0d0f17;
-  --bg-header:         rgba(10, 11, 16, 0.85);
-  --bg-surface:        #131622;
-  --bg-surface-hover:  #181c2b;
-  --bg-surface-active: #1e2336;
-  --bg-surface-card:   rgba(255, 255, 255, 0.035);
-  --bg-glass:          rgba(13, 15, 23, 0.82);
-  --bg-modal:          #111420;
-  --bg-overlay:        rgba(6, 8, 14, 0.78);
+:root,
+[data-theme="dark"] {
+  /* ── Canvas & Backgrounds (Dark: Warm Obsidian) ─────────────────────────── */
+  --bg-base:             #0a0b10;
+  --bg-sidebar:          #0d0f17;
+  --bg-header:           rgba(10, 11, 16, 0.85);
+  --bg-chat-card:        transparent;
+  --bg-surface:          #131622;
+  --bg-surface-hover:    #181c2b;
+  --bg-surface-active:   #1e2336;
+  --bg-surface-card:     rgba(255, 255, 255, 0.035);
+  --bg-glass:            rgba(13, 15, 23, 0.82);
+  --bg-modal:            #111420;
+  --bg-overlay:          rgba(6, 8, 14, 0.78);
 
-  /* ── Borders & Separators (Hairline, Restrained) ────────────────────────── */
-  --border-subtle:     rgba(255, 255, 255, 0.06);
-  --border-medium:     rgba(255, 255, 255, 0.10);
-  --border-highlight:  rgba(255, 255, 255, 0.16);
-  --border-accent:     rgba(99, 102, 241, 0.35);
+  /* ── Borders & Lines ────────────────────────────────────────────────────── */
+  --border-subtle:       rgba(255, 255, 255, 0.06);
+  --border-medium:       rgba(255, 255, 255, 0.10);
+  --border-highlight:    rgba(255, 255, 255, 0.16);
+  --border-accent:       rgba(99, 102, 241, 0.35);
 
-  /* ── Brand & Personality Accent Palette ────────────────────────────────── */
+  /* ── Accent Colors ──────────────────────────────────────────────────────── */
   --accent-primary:      #6366f1; /* Refined Iris */
   --accent-primary-hover:#4f46e5;
   --accent-primary-dim:  rgba(99, 102, 241, 0.14);
@@ -35,33 +38,126 @@
   --accent-rose:         #f43f5e;
   --accent-sky:          #0ea5e9;
 
-  /* ── Text Hierarchy ────────────────────────────────────────────────────── */
-  --text-primary:      #f3f4f8; /* 96% white with calm coolness */
-  --text-secondary:    #9aa2b5; /* calm slate */
-  --text-muted:        #5a6376; /* unobtrusive */
-  --text-dim:          rgba(255, 255, 255, 0.20);
-  --text-inverse:      #ffffff;
+  /* ── Message Bubble Themes ──────────────────────────────────────────────── */
+  --msg-own-bg:          linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(79, 70, 229, 0.14));
+  --msg-own-border:      1px solid rgba(99, 102, 241, 0.32);
+  --msg-own-text:        #f3f4f8;
 
-  /* ── Geometry & Radii ──────────────────────────────────────────────────── */
-  --radius-xs:         4px;
-  --radius-sm:         8px;
-  --radius-md:         12px;
-  --radius-lg:         18px;
-  --radius-xl:         24px;
-  --radius-pill:       999px;
+  --msg-other-bg:        #131622;
+  --msg-other-border:    1px solid rgba(255, 255, 255, 0.07);
+  --msg-other-text:      #f3f4f8;
 
-  /* ── Typography ────────────────────────────────────────────────────────── */
-  --font-ui:           'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:         'DM Mono', 'SF Mono', 'Fira Code', Menlo, monospace;
+  /* ── Input Bar ──────────────────────────────────────────────────────────── */
+  --input-bg:            rgba(255, 255, 255, 0.035);
+  --input-border:        rgba(255, 255, 255, 0.09);
+  --input-text:          #f3f4f8;
+  --input-placeholder:   #5e6678;
 
-  /* ── Shadows & Depth ───────────────────────────────────────────────────── */
-  --shadow-sm:         0 2px 8px -2px rgba(0, 0, 0, 0.4);
-  --shadow-md:         0 8px 24px -4px rgba(0, 0, 0, 0.55);
-  --shadow-lg:         0 20px 48px -10px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-glow:       0 0 20px -5px rgba(99, 102, 241, 0.35);
+  /* ── Typography & Text Hierarchy ────────────────────────────────────────── */
+  --text-primary:        #f3f4f8;
+  --text-secondary:      #9aa2b5;
+  --text-muted:          #5a6376;
+  --text-dim:            rgba(255, 255, 255, 0.20);
+  --text-inverse:        #ffffff;
 
-  /* ── Micro-Transitions ─────────────────────────────────────────────────── */
-  --transition-fast:   120ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-base:   200ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-smooth: 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* ── Shadows ────────────────────────────────────────────────────────────── */
+  --shadow-sm:           0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow-md:           0 8px 24px -4px rgba(0, 0, 0, 0.55);
+  --shadow-lg:           0 20px 48px -10px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-glow:         0 0 20px -5px rgba(99, 102, 241, 0.35);
+
+  --weather-canvas-opacity: 0.15;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Light Theme — Exact Palette Extracted from User's Screenshot
+   Outer Canvas: #EAEFFC (Soft Ice Lavender)
+   Chat Card: #FFFFFF (Crisp Rounded Card)
+   Own Bubble: #4E6CF0 (Royal Periwinkle Blue) with White Text
+   Other Bubble: #F4F6FB (Clean Ice Surface) with Dark Slate Text
+   Timestamps: #8C9BB0 (Soft Neutral Muted)
+   ───────────────────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* ── Canvas & Backgrounds (Screenshot Light Palette) ────────────────────── */
+  --bg-base:             #EAEFFC; /* Soft ice-lavender outer backdrop */
+  --bg-sidebar:          #F4F7FD; /* Clean, light tinted sidebar */
+  --bg-header:           rgba(234, 239, 252, 0.94);
+  --bg-chat-card:        #FFFFFF; /* Crisp white chat card container */
+  --bg-surface:          #F4F6FB; /* Soft light surface from screenshot */
+  --bg-surface-hover:    #E9EDF7;
+  --bg-surface-active:   #DEE4F2;
+  --bg-surface-card:     #FFFFFF;
+  --bg-glass:            rgba(244, 247, 253, 0.90);
+  --bg-modal:            #FFFFFF;
+  --bg-overlay:          rgba(28, 36, 52, 0.48);
+
+  /* ── Borders & Lines ────────────────────────────────────────────────────── */
+  --border-subtle:       rgba(0, 0, 0, 0.06);
+  --border-medium:       rgba(0, 0, 0, 0.10);
+  --border-highlight:    rgba(0, 0, 0, 0.14);
+  --border-accent:       rgba(78, 108, 240, 0.30);
+
+  /* ── Accent Colors (Screenshot Royal Blue) ──────────────────────────────── */
+  --accent-primary:      #4E6CF0; /* Exact periwinkle royal blue */
+  --accent-primary-hover:#3E5CE0;
+  --accent-primary-dim:  rgba(78, 108, 240, 0.12);
+  --accent-violet:       #6366f1;
+  --accent-teal:         #0ea5e9;
+  --accent-teal-dim:     rgba(14, 165, 233, 0.12);
+  --accent-emerald:      #10b981;
+  --accent-amber:        #f59e0b;
+  --accent-rose:         #f43f5e;
+  --accent-sky:          #38bdf8;
+
+  /* ── Message Bubble Themes (Direct from Screenshot) ─────────────────────── */
+  /* Sent message: royal blue with crisp white text */
+  --msg-own-bg:          #4E6CF0;
+  --msg-own-border:      transparent;
+  --msg-own-text:        #FFFFFF;
+
+  /* Received message: clean light-gray surface with dark slate text */
+  --msg-other-bg:        #F4F6FB;
+  --msg-other-border:    1px solid rgba(0, 0, 0, 0.04);
+  --msg-other-text:      #1E2432;
+
+  /* ── Input Bar ──────────────────────────────────────────────────────────── */
+  --input-bg:            #F4F6FB;
+  --input-border:        rgba(0, 0, 0, 0.07);
+  --input-text:          #1E2432;
+  --input-placeholder:   #8C9BB0;
+
+  /* ── Typography (Dark, Crisp Slate Hierarchy) ───────────────────────────── */
+  --text-primary:        #1E2432; /* Title text from screenshot */
+  --text-secondary:      #526079;
+  --text-muted:          #8C9BB0; /* Timestamp gray from screenshot */
+  --text-dim:            rgba(0, 0, 0, 0.35);
+  --text-inverse:        #FFFFFF;
+
+  /* ── Shadows ────────────────────────────────────────────────────────────── */
+  --shadow-sm:           0 2px 6px -1px rgba(78, 108, 240, 0.08);
+  --shadow-md:           0 8px 24px -4px rgba(78, 108, 240, 0.12);
+  --shadow-lg:           0 20px 48px -10px rgba(30, 41, 69, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --shadow-glow:         0 0 20px -5px rgba(78, 108, 240, 0.25);
+
+  --weather-canvas-opacity: 0.06;
+}
+
+/* ── Universal Design Tokens ──────────────────────────────────────────────── */
+:root {
+  /* ── Geometry & Radii ── */
+  --radius-xs:           4px;
+  --radius-sm:           8px;
+  --radius-md:           12px;
+  --radius-lg:           18px;
+  --radius-xl:           24px;
+  --radius-pill:         999px;
+
+  /* ── Typography Fonts ── */
+  --font-ui:             'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:           'DM Mono', 'SF Mono', 'Fira Code', Menlo, monospace;
+
+  /* ── Transitions ── */
+  --transition-fast:     120ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base:     200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-smooth:   320ms cubic-bezier(0.16, 1, 0.3, 1);
 }

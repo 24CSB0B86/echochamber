@@ -1,5 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    MessageBubble — Minimalist, High-Precision Chat Bubble
+   Supports both Dark Obsidian Theme & Light Theme (Screenshot Palette)
    ───────────────────────────────────────────────────────────────────────────── */
 @import '../styles/tokens.css';
 
@@ -8,14 +9,15 @@
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  padding: 3px 20px;
-  margin-bottom: 2px;
-  animation: msg-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding: 4px 20px;
+  margin-bottom: 3px;
+  animation: msg-enter 0.15s ease-out both;
 }
 
+/* Jitter-free fade animation: NO translateY to prevent scroll boundary vibration */
 @keyframes msg-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .msg-bubble--own {
@@ -31,23 +33,31 @@
   background: rgba(255, 255, 255, 0.015);
 }
 
+[data-theme="light"] .msg-bubble:hover {
+  background: rgba(0, 0, 0, 0.015);
+}
+
 /* ── Avatar ────────────────────────────────── */
 .msg-bubble__avatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: linear-gradient(
     135deg,
     var(--profile-color, var(--accent-primary)),
     color-mix(in srgb, var(--profile-color, var(--accent-primary)) 45%, #000)
   );
-  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   align-self: flex-end;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .msg-bubble__avatar {
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 .msg-bubble__avatar--own {
@@ -66,52 +76,50 @@
   align-items: flex-end;
 }
 
-/* ── Sender Name (Sophisticated Tinted Slate) ── */
+/* ── Sender Name ───────────────────────────── */
 .msg-bubble__name {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
-  padding: 0 2px;
-  color: color-mix(in srgb, var(--profile-color, #818cf8) 65%, #e2e8f0);
+  padding: 0 4px;
+  color: var(--text-secondary);
 }
 
 /* ── Bubble Container ──────────────────────── */
 .msg-bubble__bubble {
   position: relative;
-  padding: 9px 14px;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  padding: 10px 16px;
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-/* Other users' messages */
+/* Other users' messages (Screenshot soft light surface in light theme, obsidian in dark) */
 .msg-bubble--other .msg-bubble__bubble {
-  background: var(--bg-surface);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 16px 16px 16px 4px;
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  background: var(--msg-other-bg);
+  border: var(--msg-other-border);
+  border-radius: 20px 20px 20px 4px;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.05);
 }
 
 .msg-bubble--other .msg-bubble__bubble:hover {
-  background: var(--bg-surface-hover);
-  border-color: rgba(255, 255, 255, 0.10);
+  filter: brightness(0.98);
 }
 
-/* Own messages */
+/* Own messages (Screenshot royal blue in light theme, iris in dark) */
 .msg-bubble--own .msg-bubble__bubble {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(79, 70, 229, 0.14));
-  border: 1px solid rgba(99, 102, 241, 0.32);
-  border-radius: 16px 16px 4px 16px;
-  box-shadow: 0 2px 10px -2px rgba(99, 102, 241, 0.2);
+  background: var(--msg-own-bg);
+  border: var(--msg-own-border);
+  border-radius: 20px 20px 4px 20px;
+  box-shadow: 0 3px 12px -2px rgba(78, 108, 240, 0.28);
 }
 
 .msg-bubble--own .msg-bubble__bubble:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.28), rgba(79, 70, 229, 0.18));
-  border-color: rgba(99, 102, 241, 0.42);
+  filter: brightness(1.03);
 }
 
 /* Raw original view mode */
 .msg-bubble__bubble--raw {
   border-style: dashed !important;
-  opacity: 0.82;
+  opacity: 0.85;
 }
 
 /* Streaming blinking cursor */
@@ -119,7 +127,7 @@
   content: '▋';
   font-size: 11px;
   margin-left: 2px;
-  color: var(--accent-primary);
+  color: currentColor;
   animation: blink-cursor 0.9s step-end infinite;
 }
 
@@ -131,16 +139,23 @@
 /* ── Text Content ──────────────────────────── */
 .msg-bubble__text {
   font-size: 13.5px;
-  line-height: 1.55;
-  color: var(--text-primary);
+  line-height: 1.5;
   margin: 0;
   word-break: break-word;
   white-space: pre-wrap;
 }
 
+.msg-bubble--own .msg-bubble__text {
+  color: var(--msg-own-text);
+}
+
+.msg-bubble--other .msg-bubble__text {
+  color: var(--msg-other-text);
+}
+
 .msg-bubble__bubble--raw .msg-bubble__text {
   font-style: italic;
-  color: var(--text-secondary);
+  opacity: 0.85;
 }
 
 /* ── Reframe Badge & Toggle Row ────────────── */
@@ -148,7 +163,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 3px;
   padding: 0 2px;
 }
 
@@ -158,11 +173,11 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: var(--accent-primary-dim);
+  border: 1px solid var(--border-accent);
   font-size: 10px;
   font-weight: 500;
-  color: #c7d2fe;
+  color: var(--accent-primary);
   cursor: default;
   letter-spacing: -0.01em;
 }
@@ -173,19 +188,19 @@
   padding: 1px 4px;
   font-size: 10.5px;
   font-weight: 500;
-  color: #7b859b;
+  color: var(--text-muted);
   cursor: pointer;
   transition: color var(--transition-fast);
   border-radius: 4px;
 }
 
 .msg-bubble__raw-toggle:hover {
-  color: #e2e8f0;
+  color: var(--text-primary);
   text-decoration: underline;
 }
 
 .msg-bubble__raw-toggle--active {
-  color: #c7d2fe;
+  color: var(--accent-primary);
 }
 
 /* ── Meta: Timestamp & Status ──────────────── */
@@ -197,7 +212,7 @@
 }
 
 .msg-bubble__time {
-  font-size: 10px;
+  font-size: 10.5px;
   font-family: var(--font-mono);
   color: var(--text-muted);
 }
@@ -209,5 +224,5 @@
 }
 
 .msg-bubble__status--failed {
-  color: #fb7185;
+  color: var(--accent-rose);
 }

@@ -14,6 +14,7 @@
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ProfileProvider, useProfile } from './context/ProfileContext';
+import { ThemeProvider } from './context/ThemeContext';
 import Auth        from './pages/Auth';
 import Onboarding  from './pages/Onboarding';
 import Chat        from './pages/Chat';
@@ -63,10 +64,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <ProfileProvider>
-        <AppRoutes />
-      </ProfileProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <ProfileProvider>
+          <AppRoutes />
+        </ProfileProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }

@@ -4,6 +4,7 @@
 
 import { useState, useCallback } from 'react';
 import { useProfile }       from '../context/ProfileContext';
+import { useTheme }         from '../context/ThemeContext';
 import { useRoom }          from '../hooks/useRoom';
 import { useWeather }       from '../hooks/useWeather';
 import { useUnread }        from '../hooks/useUnread';
@@ -26,6 +27,7 @@ const WEATHER_META = {
 
 export default function Chat() {
   const { profile } = useProfile();
+  const { theme, toggleTheme } = useTheme();
   const [activeRoom, setActiveRoom] = useState({ id: null, name: '' });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -101,13 +103,39 @@ export default function Chat() {
 
         <div className="chat-header__spacer" />
 
-        {/* ── Right-Side Actions: Online Avatars + Profile Button ── */}
+        {/* ── Right-Side Actions: Online Avatars + Theme Toggle + Profile Button ── */}
         <div className="chat-header__actions">
           {activeRoomId && (
             <div className="chat-header__online-wrap">
               <OnlineAvatars users={onlineUsers} />
             </div>
           )}
+
+          {/* Theme Toggle (Dark / Light) */}
+          <button
+            className="chat-header__theme-btn"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" />
+                <line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            )}
+          </button>
 
           <div className="chat-header__divider" aria-hidden="true" />
 

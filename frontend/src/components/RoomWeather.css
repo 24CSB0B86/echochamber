@@ -10,6 +10,8 @@
   z-index: 0;        /* behind everything (messages z-index: 10+) */
   pointer-events: none;
   display: block;
+  opacity: var(--weather-canvas-opacity, 0.15);
+  border-radius: inherit;
 }
 
 @media (max-width: 768px) {

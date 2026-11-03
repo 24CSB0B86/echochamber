@@ -15,7 +15,7 @@ export default function ProfilePage() {
   if (!profile) return null;
 
   return (
-    <div style={{ height: '100vh', background: '#0a0b10' }}>
+    <div style={{ height: '100vh', background: 'var(--bg-base)' }}>
       <UserProfileModal
         isOpen={true}
         onClose={() => navigate('/chat')}
@@ -23,3 +23,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+
