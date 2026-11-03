@@ -1,67 +1,154 @@
 /* ─────────────────────────────────────────────
-   OnlineAvatars — stacked 26px circles
+   OnlineAvatars — Stacked Presence Circles with Refined Tooltips
    ───────────────────────────────────────────── */
 @import '../styles/tokens.css';
 
 .online-avatars {
   display: flex;
   align-items: center;
+  position: relative;
 }
 
-/* Each avatar overlaps the previous by 6px */
+.online-avatars__stack {
+  display: flex;
+  align-items: center;
+}
+
+/* Stacked avatar circles */
 .online-avatar {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    var(--avatar-color, var(--accent-violet)),
-    color-mix(in srgb, var(--avatar-color, var(--accent-violet)) 55%, var(--accent-teal))
-  );
+  background: var(--bg-surface);
   border: 2px solid var(--bg-base);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  cursor: default;
-  margin-left: -6px;
-  transition: transform var(--transition-fast), z-index var(--transition-fast);
+  cursor: pointer;
+  margin-left: -7px;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), z-index 0s;
   z-index: 1;
 }
 
-.online-avatar:first-child { margin-left: 0; }
-
-.online-avatar:hover {
-  transform: translateY(-2px);
-  z-index: 10;
+.online-avatar:first-child {
+  margin-left: 0;
 }
 
-/* Tooltip */
+.online-avatar__ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--avatar-color, var(--accent-primary)) 75%, transparent),
+    color-mix(in srgb, var(--avatar-color, var(--accent-primary)) 35%, #000)
+  );
+}
+
+.online-avatar:hover {
+  transform: translateY(-2px) scale(1.06);
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--avatar-color, var(--accent-primary));
+}
+
+/* ── Tooltip: Below the avatar, highly visible, never clipped ── */
 .online-avatar__tooltip {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(20, 20, 35, 0.95);
-  border: 1px solid var(--border-medium);
-  color: var(--text-primary);
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
+  top: calc(100% + 10px);
+  right: -8px;
+  transform: translateY(4px);
+  background: #131622;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s;
-  backdrop-filter: blur(8px);
+  visibility: hidden;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.18s;
+  z-index: 999;
 }
 
-.online-avatar:hover .online-avatar__tooltip { opacity: 1; }
+/* Micro upward caret */
+.online-avatar__tooltip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 18px;
+  width: 8px;
+  height: 8px;
+  background: #131622;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  transform: rotate(45deg);
+}
+
+.online-avatar:hover .online-avatar__tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.online-avatar__tooltip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  flex-shrink: 0;
+}
+
+.online-avatar__tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.online-avatar__tooltip-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f3f4f8;
+  letter-spacing: -0.01em;
+}
+
+.online-avatar__tooltip-trait {
+  font-size: 10px;
+  font-weight: 500;
+  color: #9aa2b5;
+  text-transform: capitalize;
+}
 
 /* Overflow "+N" chip */
 .online-avatar--overflow {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-medium);
-  font-size: 10px;
+  background: #1a1e2e;
+  border-color: var(--bg-base);
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #9aa2b5;
+  cursor: pointer;
+}
+
+.online-avatar--overflow:hover {
+  background: #23283c;
+  color: #f3f4f8;
+}
+
+.online-avatar__tooltip--overflow {
+  right: -4px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 220px;
+  white-space: normal;
 }

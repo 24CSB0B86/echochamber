@@ -27,6 +27,8 @@ import { createUserClient } from '../auth/supabase.js';
 import { reframeAndDeliver } from './reframeHandler.js';
 import { analyzeMessage, updateRoomWeather } from '../services/sentiment.js';
 import { INSTANCE_ID } from '../lib/instanceId.js';
+import { hashContent } from '../services/reframeCache.js';
+import { reframeMessage } from '../services/groq.js';
 
 // Rate limit constants
 const RATE_LIMIT_MAX    = 30;  // messages
@@ -77,6 +79,65 @@ export function registerRoomHandlers(io, socket) {
       // LRANGE returns newest-first (LPUSH inserts at head). Reverse for display.
       const rawHistory = await redis.lrange(`history:${roomId}`, 0, 49);
       const history    = rawHistory.map(m => JSON.parse(m)).reverse();
+
+      // ── Reframe history for joining user's personality ───────────────────────
+      // Bug fix: previously, history messages only contained rawContent.
+      // On refresh, reframed versions were lost. Here we check the Redis reframe
+      // cache for the joining user's personality typeKey (with Groq fallback on miss),
+      // ensuring that page refreshes and room re-entries retain full reframing.
+      const userTypeKey = socket.typeKey || socket.profile?.typeKey;
+      if (userTypeKey && history.length > 0) {
+        try {
+          const cachePipeline = redis.pipeline();
+          const candidateIndices = [];
+
+          history.forEach((m, idx) => {
+            // Reframe only other users' messages (sender always sees their own raw text)
+            if (m.senderId !== socket.userId && m.rawContent) {
+              const hash = hashContent(m.rawContent);
+              cachePipeline.get(`reframe:${hash}:${userTypeKey}`);
+              candidateIndices.push(idx);
+            }
+          });
+
+          if (candidateIndices.length > 0) {
+            const cacheResults = await cachePipeline.exec();
+            const misses = [];
+
+            cacheResults.forEach(([err, cached], i) => {
+              const histIdx = candidateIndices[i];
+              if (!err && cached) {
+                history[histIdx].content = cached;
+              } else {
+                misses.push(histIdx);
+              }
+            });
+
+            // If any cache misses, reframe via Groq in parallel and cache the result
+            if (misses.length > 0) {
+              const writePipeline = redis.pipeline();
+              await Promise.all(
+                misses.map(async (histIdx) => {
+                  try {
+                    const raw = history[histIdx].rawContent;
+                    const reframed = await reframeMessage(raw, userTypeKey);
+                    if (reframed) {
+                      history[histIdx].content = reframed;
+                      const hash = hashContent(raw);
+                      writePipeline.set(`reframe:${hash}:${userTypeKey}`, reframed, 'EX', 3600);
+                    }
+                  } catch (e) {
+                    console.error('[room/reframe-history] Miss reframe error:', e.message);
+                  }
+                })
+              );
+              await writePipeline.exec();
+            }
+          }
+        } catch (reframeErr) {
+          console.error('[room/join_room] History reframe error:', reframeErr.message);
+        }
+      }
 
       // ── Load current weather for this room ───────────────────────────────────
       // HGETALL "roomweather:{roomId}" — computed by sentiment.js asynchronously.
