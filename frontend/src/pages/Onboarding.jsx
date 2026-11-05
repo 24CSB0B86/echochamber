@@ -63,9 +63,22 @@ const QUESTIONS = [
   },
 ];
 
+// Personality traits mapping for fallback computation
+const SETTING_MAP  = { 1: 'nature', 2: 'ocean', 3: 'urban' };
+const TIME_MAP     = { 1: 'night', 2: 'day', 3: 'evening' };
+const RESPONSE_MAP = { 1: 'analytical', 2: 'emotional', 3: 'avoidant' };
+const SOCIAL_MAP   = { 1: 'introvert', 2: 'ambivert', 3: 'extrovert' };
+const MEDIUM_MAP   = { 1: 'verbal', 2: 'visual', 3: 'auditory' };
+const COLOR_PALETTE = [
+  '#6366f1', '#818cf8', '#14b8a6', '#10b981',
+  '#0ea5e9', '#f59e0b', '#f43f5e', '#ec4899',
+  '#8b5cf6', '#06b6d4', '#84cc16', '#eab308'
+];
+const AVATAR_SHAPES = ['circle', 'triangle', 'square', 'hexagon', 'star'];
+
 export default function Onboarding() {
-  const navigate            = useNavigate();
-  const { profile, setProfile } = useProfile();
+  const navigate = useNavigate();
+  const { profile: existingProfile, setProfile } = useProfile();
 
   const [currentIndex,  setCurrentIndex]  = useState(0);  // which question we're on (0-4)
   const [answers,       setAnswers]       = useState([]);  // accumulated answers (1-indexed)
@@ -122,40 +135,96 @@ export default function Onboarding() {
         throw new Error('No active session. Please sign in again.');
       }
 
-      const displayName = session.user.user_metadata?.display_name || '';
-      const apiUrl      = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const userId = session.user.id;
+      const rawName = session.user.user_metadata?.display_name ||
+                      existingProfile?.displayName ||
+                      session.user.email?.split('@')[0] ||
+                      `User${userId.slice(0, 6)}`;
+      const displayName = rawName.trim();
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-      const res = await fetch(`${apiUrl}/api/onboarding`, {
-        method: 'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          // Include the Bearer token — auth middleware caches this in Redis
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          answers: allAnswers,
-          displayName: displayName || profile?.displayName,
-          color: profile?.color,
-          avatar: profile?.avatar,
-        }),
-      });
+      let savedProfile = null;
 
-      if (!res.ok) {
-        const { error: apiError } = await res.json();
-        throw new Error(apiError || 'Failed to save your profile');
+      // ── Step 1: Call backend /api/onboarding ─────────────────────────────
+      try {
+        const res = await fetch(`${apiUrl}/api/onboarding`, {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            answers: allAnswers,
+            displayName,
+            color: existingProfile?.color,
+            avatar: existingProfile?.avatar,
+          }),
+        });
+
+        if (res.ok) {
+          const resJson = await res.json();
+          if (resJson?.profile) {
+            savedProfile = resJson.profile;
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          console.warn('[Onboarding] Backend returned error:', errData.error);
+        }
+      } catch (fetchErr) {
+        console.warn('[Onboarding] Backend fetch failed, falling back to direct Supabase:', fetchErr.message);
       }
 
-      const { profile } = await res.json();
+      // ── Step 2: Supabase fallback if backend /api/onboarding was unavailable ──
+      if (!savedProfile) {
+        const setting  = SETTING_MAP[allAnswers[0]]   || 'nature';
+        const time     = TIME_MAP[allAnswers[1]]      || 'night';
+        const response = RESPONSE_MAP[allAnswers[2]]  || 'analytical';
+        const social   = SOCIAL_MAP[allAnswers[3]]    || 'ambivert';
+        const medium   = MEDIUM_MAP[allAnswers[4]]    || 'verbal';
+        const typeKey  = `${response}:${medium}`;
+
+        const answerSum = allAnswers.reduce((acc, a) => acc + a, 0);
+        const color = existingProfile?.color || COLOR_PALETTE[answerSum % 12];
+        const avatar = existingProfile?.avatar || AVATAR_SHAPES[(allAnswers[2] - 1) % 5];
+
+        const { error: dbError } = await supabase
+          .from('profiles')
+          .upsert({
+            user_id:          userId,
+            color,
+            avatar,
+            display_name:     displayName,
+            personality_json: { setting, time, response, social, medium, typeKey },
+          }, { onConflict: 'user_id' });
+
+        if (dbError) {
+          throw new Error(dbError.message || 'Failed to save personality profile');
+        }
+
+        savedProfile = {
+          userId,
+          displayName,
+          setting,
+          time,
+          response,
+          social,
+          medium,
+          typeKey,
+          color,
+          avatar,
+        };
+      }
 
       // Store profile in React context so /chat can access it immediately
-      setProfile(profile);
+      setProfile(savedProfile);
 
       // Small celebratory pause before redirect
       await delay(400);
       navigate('/chat');
 
     } catch (err) {
-      setError(err.message);
+      console.error('[Onboarding] Error submitting profile:', err);
+      setError(err.message || 'Failed to save profile. Please try again.');
       setLoading(false);
     }
   }

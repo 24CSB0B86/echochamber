@@ -24,7 +24,12 @@ export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount, o
     try {
       const res  = await fetch(`${API_URL}/api/rooms`);
       const data = await res.json();
-      setRooms(data.rooms || []);
+      const fetched = data.rooms || [];
+      setRooms(fetched);
+      // Auto-select first room if no room is selected yet
+      if (!activeRoomId && fetched.length > 0 && onSelectRoom) {
+        onSelectRoom(fetched[0].id, fetched[0].name);
+      }
     } catch (err) {
       console.error('[RoomList] fetch error:', err);
     } finally {
@@ -58,7 +63,7 @@ export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount, o
         setNewRoomName('');
         setNewRoomDesc('');
         setShowCreate(false);
-        onSelectRoom(room.id);
+        onSelectRoom(room.id, room.name);
       }
     } catch (err) {
       console.error('[RoomList] create error:', err);

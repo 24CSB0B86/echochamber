@@ -173,6 +173,12 @@ export default function Chat() {
             </div>
             <h2>Select a conversation</h2>
             <p>Every message automatically adapts tone and style to your unique personality lens.</p>
+            <button
+              className="chat-main__placeholder-btn"
+              onClick={() => setSidebarOpen(true)}
+            >
+              Browse Rooms
+            </button>
           </div>
         ) : (
           <div className="chat-main__room">

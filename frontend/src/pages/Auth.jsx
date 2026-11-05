@@ -14,7 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useProfile } from '../context/ProfileContext';
@@ -32,6 +32,17 @@ export default function Auth() {
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
   const [message,     setMessage]     = useState('');
+
+  // Auto-redirect if user already has an active session
+  useEffect(() => {
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        navigate('/chat', { replace: true });
+      }
+    }
+    checkSession();
+  }, [navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -76,11 +87,38 @@ export default function Auth() {
 
         // Check if this user already has a profile
         // This determines whether to send them to onboarding or straight to chat
-        const profileRes = await fetch(`${apiUrl}/api/profile/${userId}`);
+        let userProfile = null;
+        try {
+          const profileRes = await fetch(`${apiUrl}/api/profile/${userId}`);
+          if (profileRes.ok) {
+            const resData = await profileRes.json();
+            if (resData?.profile) userProfile = resData.profile;
+          }
+        } catch (fetchErr) {
+          console.warn('[Auth] Backend profile check failed, trying Supabase fallback');
+        }
 
-        if (profileRes.ok) {
-          const { profile } = await profileRes.json();
-          setProfile(profile); // hydrate context immediately
+        // Direct Supabase fallback
+        if (!userProfile) {
+          const { data: dbProfile } = await supabase
+            .from('profiles')
+            .select('user_id, color, avatar, personality_json, display_name')
+            .eq('user_id', userId)
+            .single();
+
+          if (dbProfile) {
+            userProfile = {
+              userId:      dbProfile.user_id,
+              displayName: dbProfile.display_name,
+              color:       dbProfile.color,
+              avatar:      dbProfile.avatar,
+              ...dbProfile.personality_json,
+            };
+          }
+        }
+
+        if (userProfile) {
+          setProfile(userProfile); // hydrate context immediately
           navigate('/chat');
         } else {
           // No profile → first-time user, send to onboarding

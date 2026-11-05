@@ -92,6 +92,20 @@ export function ProfileProvider({ children }) {
     }
 
     loadProfile();
+
+    // Listen for auth state changes (sign in, sign out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setProfile(null);
+        setIsLoaded(true);
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        loadProfile();
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   return (

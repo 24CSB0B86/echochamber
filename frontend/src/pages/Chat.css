@@ -283,6 +283,25 @@
   margin: 0;
 }
 
+.chat-main__placeholder-btn {
+  margin-top: 8px;
+  padding: 8px 20px;
+  background: var(--accent-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(78, 108, 240, 0.35);
+  transition: all var(--transition-fast);
+}
+
+.chat-main__placeholder-btn:hover {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+}
+
 /* Active Room Workspace */
 .chat-main__room {
   display: flex;

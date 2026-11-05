@@ -19,7 +19,7 @@
 
 import { Server } from 'socket.io';
 import redis      from '../lib/redis.js';
-import { getUser } from '../auth/supabase.js';
+import supabase, { getUser } from '../auth/supabase.js';
 import { registerRoomHandlers } from './roomHandler.js';
 import { startPubSub }          from './pubsub.js';
 
@@ -34,7 +34,7 @@ const TOKEN_CACHE_TTL = 300;
 export function initSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: (origin, callback) => callback(null, true),
       credentials: true,
     },
   });
@@ -69,11 +69,28 @@ export function initSocket(httpServer) {
         await redis.set(cacheKey, `${userId}|${email}`, 'EX', TOKEN_CACHE_TTL);
       }
 
-      // Step 2: Load profile from Redis
-      // HGETALL returns {} for missing keys — check for a required field
-      const profile = await redis.hgetall(`profile:${userId}`);
+      // Step 2: Load profile from Redis, falling back to Supabase on miss
+      let profile = await redis.hgetall(`profile:${userId}`);
       if (!profile || !profile.userId) {
-        return next(new Error('PROFILE_NOT_FOUND'));
+        const { data: dbData } = await supabase
+          .from('profiles')
+          .select('user_id, color, avatar, personality_json, display_name')
+          .eq('user_id', userId)
+          .single();
+
+        if (dbData) {
+          profile = {
+            userId:      dbData.user_id,
+            displayName: dbData.display_name,
+            color:       dbData.color,
+            avatar:      dbData.avatar,
+            ...dbData.personality_json,
+            typeKey:     dbData.personality_json?.typeKey || `${dbData.personality_json?.response || 'analytical'}:${dbData.personality_json?.medium || 'verbal'}`,
+          };
+          await redis.hset(`profile:${userId}`, profile);
+        } else {
+          return next(new Error('PROFILE_NOT_FOUND'));
+        }
       }
 
       // Step 3: Attach to socket — never fetch again during this connection

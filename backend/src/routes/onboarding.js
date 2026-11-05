@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import redis from '../lib/redis.js';
-import supabase, { createUserClient } from '../auth/supabase.js';
+import supabase, { createUserClient, supabaseAdmin } from '../auth/supabase.js';
 
 const router = Router();
 
@@ -129,24 +129,23 @@ router.post('/', authMiddleware, async (req, res) => {
     // No redis.expire() call — this is intentional. Profiles are permanent.
 
     // ── Store in Supabase (durable backup + analytics) ────────────────────────
-    // Use a user-scoped client (req.token) so Supabase sees auth.uid() = userId.
-    // This satisfies the RLS policy "users can upsert their own profile row"
-    // without needing a service role key.
-    const userClient = createUserClient(req.token);
-    const { error: dbError } = await userClient
-      .from('profiles')
-      .upsert({
-        user_id:          userId,
-        color,
-        avatar,
-        display_name:     name,
-        personality_json: { setting, time, response, social, medium, typeKey },
-      }, { onConflict: 'user_id' }); // upsert so re-taking onboarding works
+    try {
+      const dbClient = supabaseAdmin || createUserClient(req.token);
+      const { error: dbError } = await dbClient
+        .from('profiles')
+        .upsert({
+          user_id:          userId,
+          color,
+          avatar,
+          display_name:     name,
+          personality_json: { setting, time, response, social, medium, typeKey },
+        }, { onConflict: 'user_id' }); // upsert so re-taking onboarding works
 
-    if (dbError) {
-      console.error('[onboarding] Supabase upsert error:', dbError.message);
-      // Don't fail the request — Redis write succeeded, profile is usable.
-      // Supabase is the backup; Redis is the live source of truth.
+      if (dbError) {
+        console.error('[onboarding] Supabase upsert error:', dbError.message);
+      }
+    } catch (dbEx) {
+      console.warn('[onboarding] Supabase write exception:', dbEx.message);
     }
 
     return res.status(201).json({ profile });
