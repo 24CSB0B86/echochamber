@@ -28,7 +28,14 @@ const WEATHER_META = {
 export default function Chat() {
   const { profile } = useProfile();
   const { theme, toggleTheme } = useTheme();
-  const [activeRoom, setActiveRoom] = useState({ id: null, name: '' });
+  const [activeRoom, setActiveRoom] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('echochamber_active_room');
+      return saved ? JSON.parse(saved) : { id: null, name: '' };
+    } catch {
+      return { id: null, name: '' };
+    }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
@@ -41,7 +48,11 @@ export default function Chat() {
   const { clear, getCount } = useUnread(activeRoomId);
 
   const handleSelectRoom = useCallback((roomId, roomName) => {
-    setActiveRoom({ id: roomId, name: roomName || 'room' });
+    const next = { id: roomId, name: roomName || 'room' };
+    setActiveRoom(next);
+    try {
+      sessionStorage.setItem('echochamber_active_room', JSON.stringify(next));
+    } catch {}
     clear(roomId);
     setSidebarOpen(false);
   }, [clear]);

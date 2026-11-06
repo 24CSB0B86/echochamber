@@ -24,12 +24,7 @@ export default function RoomList({ activeRoomId, onSelectRoom, getUnreadCount, o
     try {
       const res  = await fetch(`${API_URL}/api/rooms`);
       const data = await res.json();
-      const fetched = data.rooms || [];
-      setRooms(fetched);
-      // Auto-select first room if no room is selected yet
-      if (!activeRoomId && fetched.length > 0 && onSelectRoom) {
-        onSelectRoom(fetched[0].id, fetched[0].name);
-      }
+      setRooms(data.rooms || []);
     } catch (err) {
       console.error('[RoomList] fetch error:', err);
     } finally {
